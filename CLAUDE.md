@@ -196,3 +196,63 @@ after a worker completes.
 Results are deduplicated, sorted, and emitted as a `list[Path]` via
 `files_dropped`.  `MainWindow` wires this signal to `_load_paths`, so the full
 loading flow runs identically to a file-dialog open.
+
+---
+
+## Build & Release Pipeline
+
+### How a release works
+
+1. A developer pushes a version tag: `git tag v0.2.0 && git push origin v0.2.0`
+2. `.github/workflows/release.yml` triggers on `windows-latest`.
+3. The workflow installs deps, generates the icon, runs PyInstaller, and zips
+   `dist\Photon\` into `Photon-v0.2.0-windows.zip`.
+4. `softprops/action-gh-release` creates the GitHub Release and attaches the zip.
+5. Tags containing `-beta` or `-alpha` are automatically marked as pre-releases.
+
+### App icon
+
+`assets/icon.ico` is **generated, not committed to git**.  Before building,
+always run:
+
+```bash
+python scripts/generate_icon.py
+```
+
+This produces a multi-resolution ICO (16 → 256 px) with a violet hexagon and
+the letter "P" on a dark navy background.  Requires `Pillow>=10.0`.
+
+### Why one-directory mode (not one-file)
+
+PyInstaller's `--onefile` mode extracts the entire bundle to a temp directory
+on every launch.  With astropy + scipy + matplotlib that extraction takes 5–10 s.
+`COLLECT` (one-directory) ships as a folder and starts immediately because
+files are already on disk.
+
+### Why UPX is disabled
+
+UPX compression on binaries that embed numpy / scipy native extensions triggers
+Windows Defender false-positive alerts.  `upx=False` is set in both `EXE` and
+`COLLECT` blocks of `photon.spec`.
+
+### Debugging a broken build
+
+When `console=False` hides crash output, run the EXE from a terminal to see
+import errors:
+
+```bat
+cd dist\Photon
+Photon.exe
+```
+
+Any missing hidden import will print a `ModuleNotFoundError` there.  Add the
+missing module to the `hiddenimports` list in `photon.spec` and rebuild.
+
+### SmartScreen warning
+
+End users see "Windows protected your PC" on first launch because the app is
+unsigned.  The fix: click **More info** → **Run anyway**.  This is documented
+in both the README and the GitHub Release body.
+
+Future: obtain a code signing certificate (Sectigo or DigiCert) and sign
+`Photon.exe` post-build to eliminate the warning entirely.

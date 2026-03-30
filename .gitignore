@@ -49,3 +49,12 @@ htmlcov/
 
 # MyPy
 .mypy_cache/
+
+# Build artifacts
+*.spec.bak
+*.manifest
+
+# Generated assets (regenerate with: python scripts/generate_icon.py)
+assets/icon.ico
+
+# PyInstaller working directories (dist/ and build/ already covered above)
