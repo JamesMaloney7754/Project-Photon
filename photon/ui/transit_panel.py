@@ -1,4 +1,11 @@
-"""Transit panel — placeholder widget."""
+"""Transit model fit display panel — placeholder widget.
+
+The full implementation will show:
+- Phase-folded light curve overlaid with the best-fit Mandel-Agol model
+- A parameter table: t0, period, Rp/Rs, duration, impact parameter, chi²
+- Residuals sub-panel
+- Export controls for ETD submission
+"""
 
 from __future__ import annotations
 
@@ -8,8 +15,10 @@ from PySide6.QtWidgets import QLabel, QVBoxLayout, QWidget
 class TransitPanel(QWidget):
     """Placeholder panel for displaying transit model fits.
 
-    A full implementation will show a folded light curve overlay with the
-    best-fit Mandel-Agol model and a parameter table.
+    Parameters
+    ----------
+    parent : QWidget | None
+        Optional parent widget.
     """
 
     def __init__(self, parent: QWidget | None = None) -> None:

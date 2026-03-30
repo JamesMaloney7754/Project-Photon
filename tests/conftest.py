@@ -7,6 +7,51 @@ from pathlib import Path
 import numpy as np
 import pytest
 
+from photon.core.fits_loader import load_fits_sequence
+
+
+# ---------------------------------------------------------------------------
+# Remote sample FITS (session-scoped, cached to disk)
+# ---------------------------------------------------------------------------
+
+@pytest.fixture(scope="session")
+def sample_fits_path() -> Path:
+    """Download a real FITS file via astropy's cache and return its path.
+
+    Uses ``astropy.utils.data.download_file`` with ``cache=True`` so the file
+    is only fetched from the network once per machine.  The test is skipped
+    automatically if the network is unavailable.
+
+    Returns
+    -------
+    Path
+        Local path to the cached FITS file.
+    """
+    from astropy.utils.data import download_file
+
+    url = "https://fits.gsfc.nasa.gov/samples/FOSy19g0309t_c2f.fits"
+    try:
+        cached = download_file(url, cache=True, timeout=30)
+    except Exception as exc:
+        pytest.skip(f"Could not download sample FITS: {exc}")
+    return Path(cached)
+
+
+@pytest.fixture(scope="session")
+def sample_fits_sequence(sample_fits_path: Path) -> tuple[np.ndarray, list]:
+    """Load a 3-frame sequence by repeating *sample_fits_path* three times.
+
+    Simulates a multi-frame sequence without requiring multiple distinct files.
+    Skipped automatically if the network sample is unavailable.
+
+    Returns
+    -------
+    tuple[np.ndarray, list]
+        ``(image_stack, headers)`` as returned by
+        :func:`photon.core.fits_loader.load_fits_sequence`.
+    """
+    return load_fits_sequence([sample_fits_path, sample_fits_path, sample_fits_path])
+
 
 # ---------------------------------------------------------------------------
 # Synthetic FITS fixtures (no network required)
@@ -14,11 +59,9 @@ import pytest
 
 @pytest.fixture()
 def synthetic_fits_path(tmp_path: Path) -> Path:
-    """Write a minimal synthetic FITS file to a temp directory and return its path.
+    """Write a minimal 64×64 synthetic FITS file and return its path.
 
-    The file contains a 64×64 float32 image with a simple gradient pattern,
-    plus basic FITS keywords.  No WCS is included so tests can separately
-    verify WCS-absent behaviour.
+    Includes ``OBJECT``, ``EXPTIME``, ``FILTER``, and ``DATE-OBS`` keywords.
 
     Returns
     -------
@@ -34,51 +77,14 @@ def synthetic_fits_path(tmp_path: Path) -> Path:
     hdu.header["INSTRUME"] = "SyntheticCam"
     hdu.header["DATE-OBS"] = "2024-06-15T22:30:00.0"
     hdu.header["FILTER"] = "V"
-
     fits_path = tmp_path / "synthetic.fits"
     hdu.writeto(fits_path)
     return fits_path
 
 
 @pytest.fixture()
-def synthetic_fits_with_wcs(tmp_path: Path) -> Path:
-    """Write a minimal FITS file with a simple TAN WCS to a temp directory.
-
-    Returns
-    -------
-    Path
-        Path to the written ``.fits`` file.
-    """
-    from astropy.io import fits
-
-    rng = np.random.default_rng(42)
-    data = rng.uniform(100, 1000, (128, 128)).astype(np.float32)
-    hdu = fits.PrimaryHDU(data)
-    hdu.header["NAXIS"] = 2
-    hdu.header["NAXIS1"] = 128
-    hdu.header["NAXIS2"] = 128
-    hdu.header["CTYPE1"] = "RA---TAN"
-    hdu.header["CTYPE2"] = "DEC--TAN"
-    hdu.header["CRPIX1"] = 64.0
-    hdu.header["CRPIX2"] = 64.0
-    hdu.header["CRVAL1"] = 83.8221  # Orion Nebula RA
-    hdu.header["CRVAL2"] = -5.3911  # Orion Nebula Dec
-    hdu.header["CD1_1"] = -0.000277778
-    hdu.header["CD1_2"] = 0.0
-    hdu.header["CD2_1"] = 0.0
-    hdu.header["CD2_2"] = 0.000277778
-    hdu.header["DATE-OBS"] = "2024-06-15T23:00:00.0"
-
-    fits_path = tmp_path / "synthetic_wcs.fits"
-    hdu.writeto(fits_path)
-    return fits_path
-
-
-@pytest.fixture()
 def synthetic_fits_sequence(tmp_path: Path) -> list[Path]:
-    """Write a sequence of 3 synthetic FITS files with DATE-OBS headers.
-
-    All frames are 64×64 with varying sky backgrounds.
+    """Write a sequence of 3 synthetic 64×64 FITS files and return their paths.
 
     Returns
     -------
@@ -100,31 +106,3 @@ def synthetic_fits_sequence(tmp_path: Path) -> list[Path]:
         hdu.writeto(p)
         paths.append(p)
     return paths
-
-
-# ---------------------------------------------------------------------------
-# Real FITS sample via astropy remote data (cached)
-# ---------------------------------------------------------------------------
-
-@pytest.fixture(scope="session")
-def sample_fits_path(tmp_path_factory: pytest.TempPathFactory) -> Path:
-    """Download a small real FITS image using astropy's data cache.
-
-    Uses ``astropy.utils.data.download_file`` with ``cache=True`` so the file
-    is only downloaded once per machine.  The test is automatically skipped if
-    the network is unavailable.
-
-    Returns
-    -------
-    Path
-        Local path to the cached FITS file.
-    """
-    pytest.importorskip("astropy")
-    try:
-        from astropy.utils.data import download_file
-
-        url = "https://fits.gsfc.nasa.gov/samples/WFPC2u5780205r_c0fx.fits"
-        cached = download_file(url, cache=True, timeout=30)
-        return Path(cached)
-    except Exception as exc:
-        pytest.skip(f"Could not download sample FITS: {exc}")

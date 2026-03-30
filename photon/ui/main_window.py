@@ -1,31 +1,33 @@
-"""Main application window.
-
-Owns a single ``PhotonSession`` and orchestrates all user interactions.
-All I/O is dispatched through workers — the main thread is never blocked.
-"""
+"""Main application window — Observatory Glass layout."""
 
 from __future__ import annotations
 
 import logging
 from pathlib import Path
 
-import numpy as np
-from PySide6.QtCore import QThreadPool, Qt
+from PySide6.QtCore import QThreadPool, QTimer, Qt
+from PySide6.QtGui import QKeySequence
 from PySide6.QtWidgets import (
     QFileDialog,
+    QHBoxLayout,
     QLabel,
     QMainWindow,
-    QProgressBar,
+    QMenu,
+    QMessageBox,
+    QShortcut,
     QSplitter,
-    QTabWidget,
-    QToolBar,
+    QToolButton,
+    QVBoxLayout,
     QWidget,
 )
 
 from photon.core.session import PhotonSession
+from photon.ui.bottom_bar import BottomBarWidget
 from photon.ui.fits_canvas import FitsCanvas
-from photon.ui.light_curve_panel import LightCurvePanel
-from photon.ui.transit_panel import TransitPanel
+from photon.ui.inspector_panel import InspectorPanel
+from photon.ui.pipeline_stepper import PipelineStepperWidget
+from photon.ui.session_sidebar import SessionSidebar
+from photon.ui.theme import Colors, Typography
 from photon.workers.fits_worker import FitsLoaderWorker
 
 logger = logging.getLogger(__name__)
@@ -42,203 +44,287 @@ class MainWindow(QMainWindow):
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
-        self._session = PhotonSession()
-        self._thread_pool = QThreadPool.globalInstance()
+        self.session = PhotonSession()
+        self._pending_paths: list[Path] = []
+        self._current_frame: int = 0
+        self._current_step: int = 0
 
-        self.setWindowTitle("Photon — Astrophotography Science")
-        self.setMinimumSize(1100, 700)
+        # Frame playback timer (10 fps)
+        self._play_timer = QTimer(self)
+        self._play_timer.setInterval(100)
+        self._play_timer.timeout.connect(self._advance_frame)
 
-        self._build_ui()
-        self._build_menu()
-        self._build_toolbar()
-        self._build_status_bar()
+        self.setWindowTitle("Photon")
+        self.setMinimumSize(1100, 680)
+        # Remove the default QMenuBar — navigation lives in the logo menu
+        self.setMenuBar(None)  # type: ignore[arg-type]
+
+        self._build_components()
+        self._build_layout()
+        self._connect_signals()
+        self._register_shortcuts()
 
         logger.info("MainWindow initialised.")
 
     # ------------------------------------------------------------------
-    # UI construction
+    # Construction
     # ------------------------------------------------------------------
 
-    def _build_ui(self) -> None:
-        """Create central widget layout."""
-        splitter = QSplitter(Qt.Horizontal)
+    def _build_components(self) -> None:
+        """Instantiate all child widgets."""
+        self._stepper  = PipelineStepperWidget()
+        self._sidebar  = SessionSidebar()
+        self._canvas   = FitsCanvas()
+        self._inspector = InspectorPanel()
+        self._bottom   = BottomBarWidget()
 
-        self._fits_canvas = FitsCanvas()
-        self._fits_canvas.pixel_clicked.connect(self._on_pixel_clicked)
-        splitter.addWidget(self._fits_canvas)
+    def _build_layout(self) -> None:
+        """Assemble the full window layout."""
+        root = QWidget()
+        root_layout = QVBoxLayout(root)
+        root_layout.setContentsMargins(0, 0, 0, 0)
+        root_layout.setSpacing(0)
 
-        self._tab_widget = QTabWidget()
-        self._tab_widget.addTab(LightCurvePanel(), "Light Curve")
-        self._tab_widget.addTab(TransitPanel(), "Transit Fit")
-        splitter.addWidget(self._tab_widget)
+        # ── Top bar ──────────────────────────────────────────────────
+        top_bar = self._build_top_bar()
+        root_layout.addWidget(top_bar)
 
-        splitter.setStretchFactor(0, 3)
-        splitter.setStretchFactor(1, 1)
+        # ── Main splitter ─────────────────────────────────────────────
+        self._splitter = QSplitter(Qt.Horizontal)
+        self._splitter.setChildrenCollapsible(False)
+        self._splitter.addWidget(self._sidebar)
+        self._splitter.addWidget(self._canvas)
+        self._splitter.addWidget(self._inspector)
+        self._splitter.setCollapsible(0, False)
+        self._splitter.setCollapsible(2, False)
+        self._splitter.setStretchFactor(0, 0)
+        self._splitter.setStretchFactor(1, 1)
+        self._splitter.setStretchFactor(2, 0)
+        root_layout.addWidget(self._splitter, 1)
 
-        self.setCentralWidget(splitter)
+        # ── Bottom bar ────────────────────────────────────────────────
+        root_layout.addWidget(self._bottom)
 
-    def _build_menu(self) -> None:
-        """Create the application menu bar."""
-        menu_bar = self.menuBar()
+        self.setCentralWidget(root)
 
-        file_menu = menu_bar.addMenu("&File")
-        file_menu.addAction("&Open FITS…", self._open_fits, "Ctrl+O")
-        file_menu.addSeparator()
-        file_menu.addAction("&Quit", self.close, "Ctrl+Q")
+    def _build_top_bar(self) -> QWidget:
+        """Return the 48 px top bar with logo and pipeline stepper."""
+        bar = QWidget()
+        bar.setFixedHeight(48)
+        bar.setStyleSheet(
+            f"background-color: {Colors.SURFACE};"
+            f"border-bottom: 1px solid {Colors.BORDER};"
+        )
 
-        view_menu = menu_bar.addMenu("&View")
-        view_menu.addAction("asinh stretch", lambda: self._apply_stretch("asinh"))
-        view_menu.addAction("linear stretch", lambda: self._apply_stretch("linear"))
-        view_menu.addAction("sqrt stretch", lambda: self._apply_stretch("sqrt"))
-        view_menu.addAction("log stretch", lambda: self._apply_stretch("log"))
+        layout = QHBoxLayout(bar)
+        layout.setContentsMargins(16, 0, 16, 0)
+        layout.setSpacing(0)
 
-    def _build_toolbar(self) -> None:
-        """Create the main toolbar."""
-        toolbar = QToolBar("Main Toolbar")
-        toolbar.setMovable(False)
-        self.addToolBar(toolbar)
-        toolbar.addAction("Open FITS", self._open_fits)
+        # Logo tool-button with popup menu (right-click or click arrow)
+        self._logo_btn = QToolButton()
+        self._logo_btn.setText("⬡  PHOTON")
+        self._logo_btn.setStyleSheet(
+            f"""
+            QToolButton {{
+                font-size: {Typography.SIZE_LG}px;
+                font-weight: bold;
+                color: {Colors.ACCENT_PRIMARY};
+                background: transparent;
+                border: none;
+                padding: 4px 8px;
+                letter-spacing: 2px;
+            }}
+            QToolButton:hover {{
+                background-color: {Colors.SURFACE_ALT};
+                border-radius: 6px;
+            }}
+            QToolButton::menu-indicator {{
+                image: none;
+            }}
+            """
+        )
+        self._logo_btn.setPopupMode(QToolButton.InstantPopup)
+        self._logo_btn.setToolTip("Click for application menu")
 
-    def _build_status_bar(self) -> None:
-        """Set up the status bar with a message label and progress bar."""
-        self._status_label = QLabel("Ready.")
-        self._progress_bar = QProgressBar()
-        self._progress_bar.setFixedWidth(150)
-        self._progress_bar.setVisible(False)
+        logo_menu = QMenu(self._logo_btn)
+        logo_menu.setStyleSheet(
+            f"QMenu {{ background-color: {Colors.SURFACE}; border: 1px solid {Colors.BORDER};"
+            f" border-radius: 6px; padding: 4px 0; color: {Colors.TEXT_PRIMARY}; }}"
+            f"QMenu::item {{ padding: 6px 24px 6px 12px; border-radius: 4px; margin: 1px 4px; }}"
+            f"QMenu::item:selected {{ background-color: {Colors.ACCENT_PRIMARY}; }}"
+            f"QMenu::separator {{ height: 1px; background-color: {Colors.BORDER};"
+            f" margin: 4px 8px; }}"
+        )
+        logo_menu.addAction("Open Sequence…", self._open_sequence, "Ctrl+O")
+        logo_menu.addSeparator()
+        logo_menu.addAction("Quit", self.close, "Ctrl+Q")
+        self._logo_btn.setMenu(logo_menu)
 
-        self.statusBar().addWidget(self._status_label, 1)
-        self.statusBar().addPermanentWidget(self._progress_bar)
+        layout.addWidget(self._logo_btn)
+        layout.addSpacing(40)
+        layout.addWidget(self._stepper, 1)
+
+        return bar
+
+    def _connect_signals(self) -> None:
+        """Wire all inter-widget signals."""
+        self._sidebar.open_requested.connect(self._open_sequence)
+        self._canvas.files_dropped.connect(self._load_paths)
+        self._sidebar.frame_selected.connect(self._show_frame)
+        self._bottom.frame_scrubbed.connect(self._show_frame)
+        self._stepper.step_clicked.connect(self._set_pipeline_step)
+
+    def _register_shortcuts(self) -> None:
+        """Register global keyboard shortcuts."""
+        QShortcut(QKeySequence("Ctrl+O"), self).activated.connect(self._open_sequence)
+        QShortcut(QKeySequence("Left"),   self).activated.connect(self._prev_frame)
+        QShortcut(QKeySequence("Right"),  self).activated.connect(self._next_frame)
+        QShortcut(QKeySequence("Space"),  self).activated.connect(self._toggle_play)
+        QShortcut(QKeySequence("1"), self).activated.connect(lambda: self._set_pipeline_step(0))
+        QShortcut(QKeySequence("2"), self).activated.connect(lambda: self._set_pipeline_step(1))
+        QShortcut(QKeySequence("3"), self).activated.connect(lambda: self._set_pipeline_step(2))
+        QShortcut(QKeySequence("4"), self).activated.connect(lambda: self._set_pipeline_step(3))
+        QShortcut(QKeySequence("Ctrl+Q"), self).activated.connect(self.close)
 
     # ------------------------------------------------------------------
-    # Actions
+    # Loading flow
     # ------------------------------------------------------------------
 
-    def _open_fits(self) -> None:
-        """Show a file dialog and dispatch a FitsLoaderWorker for the selection."""
+    def _open_sequence(self) -> None:
+        """Open a file dialog and kick off the loading worker."""
         paths, _ = QFileDialog.getOpenFileNames(
             self,
-            "Open FITS File(s)",
+            "Open FITS Sequence",
             "",
-            "FITS Files (*.fits *.fit *.fts);;All Files (*)",
+            "FITS Files (*.fits *.fit);;All Files (*)",
         )
-        if not paths:
-            return
-        self._load_fits_async([Path(p) for p in paths])
+        if paths:
+            self._load_paths([Path(p) for p in paths])
 
-    def _load_fits_async(self, paths: list[Path]) -> None:
-        """Dispatch a :class:`~photon.workers.fits_worker.FitsLoaderWorker`.
+    def _load_paths(self, paths: list[Path]) -> None:
+        """Start a :class:`~photon.workers.fits_worker.FitsLoaderWorker` for *paths*.
 
         Parameters
         ----------
         paths : list[Path]
-            FITS files to load as a sequence.
+            Ordered FITS paths to load.
         """
-        names = ", ".join(p.name for p in paths[:3])
-        suffix = f" (+{len(paths) - 3} more)" if len(paths) > 3 else ""
-        self._set_status(f"Loading {names}{suffix}…")
-        self._progress_bar.setVisible(True)
-        self._progress_bar.setRange(0, 0)  # indeterminate
+        self._pending_paths = list(paths)
+        self._bottom.set_status("Loading…")
+        self._bottom.show_progress(True)
+        self._bottom.set_progress(0, 0)  # indeterminate
 
         worker = FitsLoaderWorker(paths)
-        worker.signals.result.connect(self._on_stack_loaded)
-        worker.signals.error.connect(self._on_worker_error)
-        worker.signals.finished.connect(self._on_worker_finished)
-        self._thread_pool.start(worker)
-
-    def _apply_stretch(self, stretch: str) -> None:
-        """Restretch the currently displayed frame.
-
-        Parameters
-        ----------
-        stretch : str
-            Stretch algorithm name passed to :func:`~photon.utils.stretch.stretch_image`.
-        """
-        if not self._session.is_loaded:
-            return
-        self._fits_canvas.display_data(self._session.image_stack[0], stretch=stretch)
+        worker.signals.result.connect(self._on_loaded)
+        worker.signals.error.connect(self._on_error)
+        worker.signals.finished.connect(lambda: self._bottom.show_progress(False))
+        QThreadPool.globalInstance().start(worker)
 
     # ------------------------------------------------------------------
     # Slots
     # ------------------------------------------------------------------
 
-    def _on_stack_loaded(self, payload: object) -> None:
-        """Handle a successfully loaded ``(stack, headers)`` tuple.
+    def _on_loaded(self, payload: object) -> None:
+        """Populate the session and all widgets on successful load.
 
         Parameters
         ----------
         payload : tuple[np.ndarray, list]
-            Return value from :class:`~photon.workers.fits_worker.FitsLoaderWorker`.
+            ``(image_stack, headers)`` from the worker.
         """
-        if not isinstance(payload, tuple) or len(payload) != 2:
-            logger.error("Unexpected payload type from FitsLoaderWorker: %s", type(payload))
-            return
+        stack, headers = payload  # type: ignore[misc]
 
-        stack, headers = payload
-        self._session.image_stack = stack
-        self._session.headers = headers
+        self.session.image_stack = stack
+        self.session.headers     = headers
+        self.session.fits_paths  = self._pending_paths
 
         n = stack.shape[0]
-        h, w = stack.shape[1], stack.shape[2]
-        self._fits_canvas.display_data(stack[0])
-        self._set_status(
-            f"Loaded {n} frame(s) — {h} × {w} px"
-            + (" | WCS present" if self._session.is_plate_solved else "")
-        )
+        self._current_frame = 0
+
+        self._bottom.configure_scrubber(n)
+        self._sidebar.populate(self.session, headers)
+        self._show_frame(0)
+
+        self._stepper.set_step_complete(0)
+        self._stepper.set_active_step(0)
+        self._inspector.set_step(0)
+
+        self._bottom.set_status(f"Loaded {n} frame{'s' if n != 1 else ''}")
         logger.info("Stack loaded: shape %s", stack.shape)
 
-    def _on_worker_error(self, traceback_str: str) -> None:
-        """Display a worker error in the status bar.
-
-        Parameters
-        ----------
-        traceback_str : str
-            Formatted traceback from the worker.
-        """
-        # Show just the last line (the exception message) in the status bar
+    def _on_error(self, traceback_str: str) -> None:
+        """Show a critical dialog on worker failure."""
         last_line = traceback_str.strip().splitlines()[-1]
-        self._set_status(f"Error: {last_line}")
-        logger.error("Worker error:\n%s", traceback_str)
+        self._bottom.set_status(f"Error: {last_line}")
+        logger.error("FitsLoaderWorker error:\n%s", traceback_str)
+        QMessageBox.critical(self, "Load Error", last_line)
 
-    def _on_worker_finished(self) -> None:
-        """Hide the progress bar when the worker finishes."""
-        self._progress_bar.setVisible(False)
-        self._progress_bar.setRange(0, 100)
+    # ------------------------------------------------------------------
+    # Frame navigation
+    # ------------------------------------------------------------------
 
-    def _on_pixel_clicked(self, x: float, y: float) -> None:
-        """Show pixel coordinates and value in the status bar.
+    def _show_frame(self, index: int) -> None:
+        """Display frame *index* and sync all widgets.
 
         Parameters
         ----------
-        x : float
-            Pixel x-coordinate (column).
-        y : float
-            Pixel y-coordinate (row).
+        index : int
+            Frame index into ``session.image_stack``.
         """
-        if not self._session.is_loaded:
+        if self.session.image_stack is None:
             return
-        data = self._session.image_stack[0]
-        xi, yi = int(round(x)), int(round(y))
-        if 0 <= yi < data.shape[0] and 0 <= xi < data.shape[1]:
-            value = data[yi, xi]
-            msg = f"Pixel ({xi}, {yi}) = {value:.1f} ADU"
-            if self._session.wcs is not None:
-                try:
-                    sky = self._session.wcs.pixel_to_world(x, y)
-                    msg += f"  |  RA {sky.ra.deg:.5f}° Dec {sky.dec.deg:.5f}°"
-                except Exception:
-                    pass
-            self._set_status(msg)
+        n = self.session.image_stack.shape[0]
+        index = max(0, min(index, n - 1))
+        self._current_frame = index
+
+        header = (
+            self.session.headers[index]
+            if index < len(self.session.headers)
+            else None
+        )
+        self._canvas.display_frame(self.session.image_stack[index], header)
+        self._inspector.update_file_info(header)
+        if index < len(self.session.fits_paths):
+            self._inspector.set_current_frame_path(self.session.fits_paths[index])
+
+        # Sync sidebar and scrubber without re-triggering their signals
+        self._sidebar.set_selected_frame(index)
+        self._bottom.set_frame(index)
+
+    def _prev_frame(self) -> None:
+        self._show_frame(self._current_frame - 1)
+
+    def _next_frame(self) -> None:
+        self._show_frame(self._current_frame + 1)
+
+    def _advance_frame(self) -> None:
+        if self.session.image_stack is None:
+            return
+        n = self.session.image_stack.shape[0]
+        self._show_frame((self._current_frame + 1) % n)
+
+    def _toggle_play(self) -> None:
+        if self._play_timer.isActive():
+            self._play_timer.stop()
+            self._bottom.set_status("Paused")
+        else:
+            if self.session.image_stack is not None:
+                self._play_timer.start()
+                self._bottom.set_status("Playing…")
 
     # ------------------------------------------------------------------
-    # Helpers
+    # Pipeline step switching
     # ------------------------------------------------------------------
 
-    def _set_status(self, message: str) -> None:
-        """Update the status bar label.
+    def _set_pipeline_step(self, index: int) -> None:
+        """Switch the active pipeline step.
 
         Parameters
         ----------
-        message : str
-            Message to display.
+        index : int
+            Step index ``[0, 3]``.
         """
-        self._status_label.setText(message)
+        index = max(0, min(index, 3))
+        self._current_step = index
+        self._stepper.set_active_step(index)
+        self._inspector.set_step(index)

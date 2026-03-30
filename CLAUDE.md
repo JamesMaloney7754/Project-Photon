@@ -114,3 +114,85 @@ transit parameters — all within a single PySide6 GUI.
   via `subprocess` in a new `LocalAstrometryNetSolver` that implements `PlateSolver`.
 - **Session save/load** — JSON serialisation of `PhotonSession` (excluding raw pixel data;
   store file paths instead and reload on open).
+
+---
+
+## UI Design System — Observatory Glass
+
+All visual decisions are encoded in `photon/ui/theme.py`.  This section documents
+the rules that all UI contributors must follow.
+
+### Color Tokens
+
+| Token | Hex | Use |
+|-------|-----|-----|
+| `Colors.BASE` | `#0d1117` | Application background, root QWidget |
+| `Colors.SURFACE` | `#161b22` | Panel backgrounds (sidebar, inspector, top bar) |
+| `Colors.SURFACE_ALT` | `#1c2333` | Hover states, secondary surfaces |
+| `Colors.BORDER` | `#21262d` | All 1 px dividers and outlines |
+| `Colors.BORDER_FOCUS` | `#388bfd` | Focus ring on inputs |
+| `Colors.ACCENT_PRIMARY` | `#7c3aed` | Primary CTA buttons, active stepper circles, selection highlight |
+| `Colors.ACCENT_SECONDARY` | `#3b82f6` | Info states, secondary actions |
+| `Colors.ACCENT_SUCCESS` | `#10b981` | Completed pipeline steps, success indicators |
+| `Colors.ACCENT_WARNING` | `#f59e0b` | Warnings |
+| `Colors.ACCENT_DANGER` | `#ef4444` | Error states |
+| `Colors.TEXT_PRIMARY` | `#e2e8f0` | All body text |
+| `Colors.TEXT_SECONDARY` | `#8b949e` | Labels, captions, metadata keys |
+| `Colors.TEXT_DISABLED` | `#484f58` | Disabled widget text, inactive stepper labels |
+| `Colors.TEXT_ACCENT` | `#a78bfa` | Highlighted values, accent text |
+| `Colors.CANVAS_BG` | `#080c10` | Matplotlib figure and axes background |
+
+**Rule: no hardcoded hex values anywhere in `photon/ui/` except `theme.py`.**
+Reference `Colors.<TOKEN>` everywhere else.  The linter should flag any raw `#rrggbb`
+string outside `theme.py`.
+
+### Three-Zone Layout Architecture
+
+```
+┌─────────────────────────────────────────────────────┐
+│  Top bar (48 px) — logo + pipeline stepper          │
+├──────────────┬──────────────────────┬───────────────┤
+│  Session     │                      │  Inspector    │
+│  Sidebar     │    FitsCanvas        │  Panel        │
+│  (260 px)    │    (flexible)        │  (260 px)     │
+│              │                      │               │
+├──────────────┴──────────────────────┴───────────────┤
+│  Bottom bar (36 px) — status · progress · scrubber  │
+└─────────────────────────────────────────────────────┘
+```
+
+**Why three zones?**
+- Beginners use the sidebar (simple file list) and bottom bar (scrubber) without
+  needing to understand the inspector.
+- Power users use the inspector for detailed per-frame metadata and pipeline
+  configuration without cluttering the canvas.
+- The canvas is always the largest pane and never collapses.
+
+### Pipeline Stepper — Primary Navigation Metaphor
+
+The four steps (Load → Solve → Photometry → Transit) map the science workflow.
+`PipelineStepperWidget` in the top bar is the persistent progress indicator.
+Clicking a step calls `MainWindow._set_pipeline_step(index)` which:
+1. Updates the stepper's active circle.
+2. Switches the `InspectorPanel` to the matching page.
+
+Steps are marked complete via `set_step_complete(index)` after a successful
+worker run; they show a green ✓.
+
+### Inspector Panel — Context Switching
+
+`InspectorPanel` wraps a `QStackedWidget` with one page per pipeline step.
+`set_step(index)` switches the visible page.  `update_*` methods refresh
+individual page values without switching the page; the main window calls both
+after a worker completes.
+
+### Drag-and-Drop — Files and Folders
+
+`FitsCanvas.dropEvent` accepts:
+- Individual `*.fits` / `*.fit` files.
+- Directories — recursively globbed with `Path.rglob("*.fits")`.
+- Mixed drops combining both.
+
+Results are deduplicated, sorted, and emitted as a `list[Path]` via
+`files_dropped`.  `MainWindow` wires this signal to `_load_paths`, so the full
+loading flow runs identically to a file-dialog open.

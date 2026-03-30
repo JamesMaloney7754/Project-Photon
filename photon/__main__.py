@@ -1,30 +1,27 @@
-"""Entry point for ``python -m photon`` and the ``photon`` console script."""
-
-from __future__ import annotations
-
-import logging
 import sys
+
+from PySide6.QtGui import QColor, QPixmap
+from PySide6.QtWidgets import QApplication
+
+from photon.ui.main_window import MainWindow
+from photon.ui.theme import Colors, apply_theme
 
 
 def main() -> None:
     """Launch the Photon desktop application."""
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s %(name)s %(levelname)s %(message)s",
-        datefmt="%H:%M:%S",
-    )
-
-    from PySide6.QtWidgets import QApplication
-    from photon.ui.main_window import MainWindow
-
     app = QApplication(sys.argv)
     app.setApplicationName("Photon")
-    app.setApplicationVersion("0.1.0")
-    app.setOrganizationName("photon-astro")
+    app.setOrganizationName("Photon Astrophotography")
+
+    apply_theme(app)
+
+    # Temporary placeholder icon (32×32 filled with the accent color)
+    icon_pixmap = QPixmap(32, 32)
+    icon_pixmap.fill(QColor(Colors.ACCENT_PRIMARY))
+    app.setWindowIcon(app.style().standardIcon(app.style().SP_ComputerIcon))
 
     window = MainWindow()
     window.show()
-
     sys.exit(app.exec())
 
 
