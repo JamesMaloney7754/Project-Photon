@@ -1,24 +1,22 @@
 # Photon — Astrophotography Science Analysis
 
-Photon is a desktop application that enables astronomers to load calibrated FITS images,
-plate-solve them via the Astrometry.net cloud API, cross-match sources against SIMBAD,
-Gaia DR3, and the AAVSO Variable Star Index (VSX), perform aperture photometry, and
-extract exoplanet transit parameters — all within a clean PySide6 GUI that keeps science
-logic strictly separated from the user interface.
+Photon is a desktop application for amateur and professional astronomers that
+brings a complete astrophotography science pipeline into a single PySide6 GUI:
+load sequences of calibrated FITS images, plate-solve them against the
+Astrometry.net cloud API, cross-match sources against SIMBAD, Gaia DR3, and
+the AAVSO Variable Star Index, perform differential aperture photometry, build
+multi-frame light curves, and extract exoplanet transit parameters — all
+without leaving the application.
+
+## Prerequisites
+
+- Python 3.11 or later
+- pip
 
 ## Quickstart
 
 ```bash
-# 1. Create and activate a virtual environment
-python3.11 -m venv .venv
-source .venv/bin/activate   # Windows: .venv\Scripts\activate
-
-# 2. Install Photon and its dependencies
 pip install -e ".[dev]"
-
-# 3. Run the application
 photon
-
-# 4. Run the test suite
 pytest
 ```

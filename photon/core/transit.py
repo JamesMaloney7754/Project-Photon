@@ -1,101 +1,161 @@
-"""Transit parameter extraction stub.
+"""Exoplanet transit detection and model-fitting stubs.
 
-Fits a trapezoidal or Mandel-Agol transit model to a detrended light curve.
-Placeholder implementation — full fitting will be added in a future milestone.
+This module will implement:
+1. ``detect_transit_events`` — identify candidate transit-like dips in a
+   detrended light curve using a Box Least Squares (BLS) periodogram.
+2. ``fit_transit_model`` — fit a Mandel-Agol (or trapezoidal) transit model
+   to a phase-folded light curve using ``scipy.optimize`` or ``batman``.
+
+All functions operate on plain numpy arrays and astropy tables; no Qt imports.
 """
 
 from __future__ import annotations
 
-import logging
 from dataclasses import dataclass
 
 import numpy as np
 
-logger = logging.getLogger(__name__)
 
-
-class TransitFitError(Exception):
-    """Raised when transit parameter extraction fails."""
+class TransitError(Exception):
+    """Raised when transit detection or fitting fails."""
 
 
 @dataclass
-class TransitParameters:
-    """Fitted transit parameters.
+class TransitCandidate:
+    """A candidate transit event found by the BLS periodogram.
+
+    Parameters
+    ----------
+    period_days : float
+        Best-fit orbital period in days.
+    t0 : float
+        Mid-transit time of the strongest event (same units as input time array).
+    duration_hours : float
+        Estimated transit duration in hours.
+    depth : float
+        Transit depth as a fractional flux drop (0 < depth < 1).
+    snr : float
+        Signal-to-noise ratio of the BLS peak.
+    """
+
+    period_days: float
+    t0: float
+    duration_hours: float
+    depth: float
+    snr: float
+
+
+@dataclass
+class TransitFitResult:
+    """Result of a parametric transit model fit.
 
     Parameters
     ----------
     t0 : float
-        Mid-transit time (same units as *time* array, typically BJD).
+        Fitted mid-transit time (same units as input time array).
+    period_days : float
+        Fitted orbital period in days.
+    rp_over_rs : float
+        Planet-to-star radius ratio Rp/Rs.
     duration_hours : float
-        Total transit duration in hours.
-    depth : float
-        Transit depth as a fractional flux drop (0 < depth < 1).
-    ingress_hours : float
-        Ingress/egress duration in hours.
+        Fitted transit duration in hours.
+    impact_parameter : float
+        Transit impact parameter b (0 = central transit).
     chi2_reduced : float
         Reduced chi-squared of the best-fit model.
     """
 
     t0: float
+    period_days: float
+    rp_over_rs: float
     duration_hours: float
-    depth: float
-    ingress_hours: float
+    impact_parameter: float
     chi2_reduced: float
 
 
-def extract_transit_parameters(
+def detect_transit_events(
     time: np.ndarray,
     flux: np.ndarray,
     flux_err: np.ndarray,
     *,
-    period_hint: float | None = None,
-    t0_hint: float | None = None,
-) -> TransitParameters:
-    """Fit a transit model to a detrended light curve (stub).
+    period_min: float = 0.5,
+    period_max: float = 30.0,
+    n_candidates: int = 5,
+) -> list[TransitCandidate]:
+    """Search a detrended light curve for transit-like periodic dips.
+
+    Uses a Box Least Squares (BLS) periodogram (``astropy.timeseries.BoxLeastSquares``
+    or ``lightkurve``) to identify the most significant periodic signals.
 
     Parameters
     ----------
     time : np.ndarray
-        Array of observation times (BJD or similar).
+        Array of observation times in days (BJD or similar).
     flux : np.ndarray
-        Normalised flux array (median ~1.0).
+        Detrended, normalised flux array (median ≈ 1.0).
     flux_err : np.ndarray
-        1-sigma flux uncertainties.
-    period_hint : float | None
-        Known orbital period in days; used to fold the light curve if provided.
-    t0_hint : float | None
-        Initial guess for mid-transit time.
+        1-sigma flux uncertainties, same length as *flux*.
+    period_min : float
+        Minimum trial period in days.  Default is 0.5.
+    period_max : float
+        Maximum trial period in days.  Default is 30.0.
+    n_candidates : int
+        Number of top candidates to return.  Default is 5.
 
     Returns
     -------
-    TransitParameters
-        Fitted transit parameters.
+    list[TransitCandidate]
+        Up to *n_candidates* transit candidates sorted by descending SNR.
 
     Raises
     ------
-    TransitFitError
-        If the fit fails or insufficient data are provided.
-
-    Notes
-    -----
-    This is a placeholder.  The production implementation will use
-    ``scipy.optimize.minimize`` with a Mandel-Agol model or ``batman``.
+    TransitError
+        If fewer than 10 data points are provided, or if the periodogram
+        fails to converge.
     """
-    if len(time) < 10:
-        raise TransitFitError("Insufficient data points for transit fit (need ≥ 10).")
-
-    if len(time) != len(flux) or len(time) != len(flux_err):
-        raise TransitFitError("time, flux, and flux_err must have the same length.")
-
-    logger.warning(
-        "transit.extract_transit_parameters is a stub — returning dummy parameters."
+    raise NotImplementedError(
+        "detect_transit_events() is not yet implemented. "
+        "It will run a BLS periodogram over the supplied time/flux arrays "
+        "and return the top-N candidates ranked by SNR."
     )
 
-    # Stub: return obviously dummy values so callers know this is not implemented.
-    return TransitParameters(
-        t0=float(np.median(time)),
-        duration_hours=float("nan"),
-        depth=float("nan"),
-        ingress_hours=float("nan"),
-        chi2_reduced=float("nan"),
+
+def fit_transit_model(
+    time: np.ndarray,
+    flux: np.ndarray,
+    flux_err: np.ndarray,
+    candidate: TransitCandidate,
+) -> TransitFitResult:
+    """Fit a parametric transit model to a phase-folded light curve.
+
+    Uses ``scipy.optimize.minimize`` (or ``batman`` if available) to find the
+    maximum-likelihood Mandel-Agol transit parameters given an initial
+    ``TransitCandidate`` from :func:`detect_transit_events`.
+
+    Parameters
+    ----------
+    time : np.ndarray
+        Array of observation times in days.
+    flux : np.ndarray
+        Normalised flux array (median ≈ 1.0).
+    flux_err : np.ndarray
+        1-sigma flux uncertainties.
+    candidate : TransitCandidate
+        Initial parameter estimate from :func:`detect_transit_events`.
+
+    Returns
+    -------
+    TransitFitResult
+        Fitted transit parameters and goodness-of-fit statistics.
+
+    Raises
+    ------
+    TransitError
+        If the optimiser fails to converge or the fitted parameters are
+        physically implausible (e.g. Rp/Rs > 1).
+    """
+    raise NotImplementedError(
+        "fit_transit_model() is not yet implemented. "
+        "It will phase-fold the light curve using candidate.period_days and "
+        "candidate.t0, then optimise a Mandel-Agol model with scipy.optimize."
     )
