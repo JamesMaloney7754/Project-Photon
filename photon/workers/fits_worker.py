@@ -1,6 +1,6 @@
-"""Worker that loads a FITS file off the main thread.
+"""Worker that loads a FITS sequence off the main thread.
 
-Dispatches :func:`photon.core.fits_loader.load_fits` via the
+Dispatches :func:`photon.core.fits_loader.load_fits_sequence` via the
 :class:`~photon.workers.base_worker.BaseWorker` pattern so the UI thread is
 never blocked by disk I/O.
 """
@@ -9,51 +9,58 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from photon.core.fits_loader import load_fits
-from photon.core.session import FitsFrame
+import numpy as np
+
+from photon.core.fits_loader import load_fits_sequence
 from photon.workers.base_worker import BaseWorker
 
 
-class FitsWorker(BaseWorker):
-    """Load a single FITS file asynchronously.
+class FitsLoaderWorker(BaseWorker):
+    """Load a sequence of FITS files asynchronously.
 
-    On success, ``signals.result`` is emitted with a :class:`~photon.core.session.FitsFrame`.
-    On failure, ``signals.error`` is emitted with the exception details.
+    On success, ``signals.result`` is emitted with a
+    ``(stack, headers)`` tuple where *stack* is an ``np.ndarray`` of shape
+    ``(N, height, width)`` and *headers* is a list of
+    ``astropy.io.fits.Header`` objects.
+
+    On failure, ``signals.error`` is emitted with a formatted traceback string.
 
     Parameters
     ----------
-    path : str | Path
-        Path to the FITS file to load.
+    paths : list[Path]
+        Ordered list of FITS file paths to load.
 
     Examples
     --------
     ::
 
-        worker = FitsWorker("/data/image.fits")
-        worker.signals.result.connect(self._on_fits_loaded)
-        worker.signals.error.connect(self._on_fits_error)
+        worker = FitsLoaderWorker([Path("frame1.fits"), Path("frame2.fits")])
+        worker.signals.result.connect(self._on_stack_loaded)
+        worker.signals.error.connect(self._on_load_error)
+        worker.signals.finished.connect(self._on_finished)
         QThreadPool.globalInstance().start(worker)
     """
 
-    def __init__(self, path: str | Path) -> None:
-        super().__init__(path)
+    def __init__(self, paths: list[Path]) -> None:
+        super().__init__()
+        self._paths = [Path(p) for p in paths]
 
-    def run_task(self, path: str | Path) -> FitsFrame:  # type: ignore[override]
-        """Load *path* and return a :class:`~photon.core.session.FitsFrame`.
-
-        Parameters
-        ----------
-        path : str | Path
-            Path to the FITS file.
+    def execute(self) -> tuple[np.ndarray, list]:
+        """Load all paths and return ``(image_stack, headers)``.
 
         Returns
         -------
-        FitsFrame
-            Fully loaded frame with data, header, and optional WCS.
+        tuple[np.ndarray, list]
+            ``(stack, headers)`` as returned by
+            :func:`~photon.core.fits_loader.load_fits_sequence`.
 
         Raises
         ------
-        photon.core.fits_loader.FitsLoadError
-            If the file cannot be loaded.
+        FileNotFoundError
+            If any path does not exist.
+        ValueError
+            If the sequence is empty or frames have inconsistent dimensions.
+        OSError
+            If any file is not a valid FITS file.
         """
-        return load_fits(path)
+        return load_fits_sequence(self._paths)

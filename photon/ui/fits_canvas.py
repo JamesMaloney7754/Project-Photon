@@ -1,7 +1,7 @@
 """Matplotlib-in-Qt FITS display widget.
 
 Embeds a Matplotlib figure in a Qt widget for interactive FITS image display.
-Applies astropy visualization stretches via ``photon.utils.stretch``.
+Applies stretch transforms via ``photon.utils.stretch.stretch_image``.
 """
 
 from __future__ import annotations
@@ -15,7 +15,7 @@ from matplotlib.figure import Figure
 from PySide6.QtCore import Signal
 from PySide6.QtWidgets import QSizePolicy, QVBoxLayout, QWidget
 
-from photon.utils.stretch import stretch_data
+from photon.utils.stretch import stretch_image
 
 logger = logging.getLogger(__name__)
 
@@ -23,14 +23,14 @@ logger = logging.getLogger(__name__)
 class FitsCanvas(QWidget):
     """Widget that displays a 2-D FITS image using Matplotlib.
 
-    Embeds a ``FigureCanvasQTAgg`` and exposes a :meth:`display_frame` method
+    Embeds a ``FigureCanvasQTAgg`` and exposes a :meth:`display_data` method
     to update the displayed image without recreating the figure.
 
     Signals
     -------
     pixel_clicked : Signal(float, float)
-        Emitted when the user clicks on the image, carrying (x, y) pixel
-        coordinates (0-indexed, column-major).
+        Emitted when the user clicks on the image, carrying ``(x, y)`` pixel
+        coordinates (0-indexed, column-major convention).
     """
 
     pixel_clicked: Signal = Signal(float, float)
@@ -38,7 +38,8 @@ class FitsCanvas(QWidget):
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._stretch: str = "asinh"
-        self._interval: str = "zscale"
+        self._percentile_low: float = 1.0
+        self._percentile_high: float = 99.5
 
         self._figure = Figure(tight_layout=True)
         self._ax = self._figure.add_subplot(111)
@@ -58,12 +59,13 @@ class FitsCanvas(QWidget):
     # Public API
     # ------------------------------------------------------------------
 
-    def display_frame(
+    def display_data(
         self,
         data: np.ndarray,
         *,
         stretch: str | None = None,
-        interval: str | None = None,
+        percentile_low: float | None = None,
+        percentile_high: float | None = None,
     ) -> None:
         """Render *data* on the canvas.
 
@@ -73,20 +75,29 @@ class FitsCanvas(QWidget):
             2-D science frame in raw calibrated ADU.
         stretch : str | None
             Override the current stretch algorithm.  See
-            :func:`photon.utils.stretch.stretch_data` for valid names.
-        interval : str | None
-            Override the current interval algorithm.
+            :func:`photon.utils.stretch.stretch_image` for valid names.
+        percentile_low : float | None
+            Override the lower percentile bound for the display interval.
+        percentile_high : float | None
+            Override the upper percentile bound for the display interval.
         """
         if stretch is not None:
             self._stretch = stretch
-        if interval is not None:
-            self._interval = interval
+        if percentile_low is not None:
+            self._percentile_low = percentile_low
+        if percentile_high is not None:
+            self._percentile_high = percentile_high
 
         try:
-            display_data = stretch_data(data, self._stretch, self._interval)
+            display_data = stretch_image(
+                data,
+                stretch=self._stretch,
+                percentile_low=self._percentile_low,
+                percentile_high=self._percentile_high,
+            )
         except Exception as exc:
-            logger.warning("Stretch failed (%s); falling back to linear/minmax.", exc)
-            display_data = stretch_data(data, "linear", "minmax")
+            logger.warning("Stretch failed (%s); falling back to linear.", exc)
+            display_data = stretch_image(data, stretch="linear")
 
         self._ax.set_visible(True)
         if self._image_obj is None:
@@ -99,7 +110,7 @@ class FitsCanvas(QWidget):
             )
         else:
             self._image_obj.set_data(display_data)
-            self._image_obj.set_clim(display_data.min(), display_data.max())
+            self._image_obj.set_clim(float(display_data.min()), float(display_data.max()))
 
         self._ax.set_xlabel("X (px)")
         self._ax.set_ylabel("Y (px)")
@@ -111,27 +122,6 @@ class FitsCanvas(QWidget):
         self._ax.set_visible(False)
         self._image_obj = None
         self._canvas.draw_idle()
-
-    def set_stretch(self, stretch: str, interval: str) -> None:
-        """Change the display stretch without reloading data.
-
-        If an image is already displayed this will redraw it immediately.
-
-        Parameters
-        ----------
-        stretch : str
-            Stretch algorithm name.
-        interval : str
-            Interval algorithm name.
-        """
-        self._stretch = stretch
-        self._interval = interval
-        if self._image_obj is not None:
-            raw = self._image_obj.get_array()
-            # get_array() returns the displayed (already stretched) data — we
-            # cannot recover raw counts here, so we skip the redraw.
-            # The caller should re-call display_frame() with the original data.
-            logger.debug("set_stretch called; call display_frame() to apply immediately.")
 
     # ------------------------------------------------------------------
     # Private helpers

@@ -4,56 +4,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Optional
 
 import numpy as np
-
-
-@dataclass
-class FitsFrame:
-    """A single loaded FITS frame with its metadata.
-
-    Parameters
-    ----------
-    path : Path
-        Absolute path to the source FITS file.
-    data : np.ndarray
-        2-D or 3-D pixel array (float32 after calibration).
-    header : dict[str, Any]
-        FITS header as a plain dict (FITS keyword → value).
-    wcs : Any | None
-        ``astropy.wcs.WCS`` object if plate-solved, else ``None``.
-    """
-
-    path: Path
-    data: np.ndarray
-    header: dict[str, Any] = field(default_factory=dict)
-    wcs: Any | None = None
-
-
-@dataclass
-class PhotometryResult:
-    """Aperture-photometry result for a single source in a single frame.
-
-    Parameters
-    ----------
-    source_id : str
-        Catalog identifier (e.g. SIMBAD main_id or Gaia DR3 source_id string).
-    frame_index : int
-        Index into ``PhotonSession.frames`` for the frame this was measured on.
-    flux : float
-        Net aperture flux in ADU.
-    flux_err : float
-        1-sigma flux uncertainty in ADU.
-    bjd : float | None
-        Barycentric Julian Date of mid-exposure, or ``None`` if not computed.
-    """
-
-    source_id: str
-    frame_index: int
-    flux: float
-    flux_err: float
-    bjd: float | None = None
 
 
 @dataclass
@@ -66,48 +19,61 @@ class PhotonSession:
 
     Parameters
     ----------
-    frames : list[FitsFrame]
-        Ordered list of loaded FITS frames.
-    catalog_matches : dict[str, Any]
-        Mapping of catalog name → query result table (``astropy.table.Table``).
-    photometry : list[PhotometryResult]
-        All photometry results across all frames and sources.
-    target_name : str
-        Human-readable target name set by the user.
+    fits_paths : list[Path]
+        Ordered list of FITS file paths that have been loaded.
+    image_stack : np.ndarray | None
+        Raw image data with shape ``(N_frames, height, width)``, dtype float64.
+        ``None`` until at least one frame is loaded.
+    headers : list
+        Per-frame ``astropy.io.fits.Header`` objects, one per frame in the same
+        order as ``fits_paths``.
+    wcs : object | None
+        ``astropy.wcs.WCS`` object from the plate solution, or ``None`` if the
+        sequence has not been plate-solved.
+    catalog_matches : object | None
+        ``astropy.table.Table`` of catalog cross-matches, or ``None`` if no
+        cross-match has been performed.
+    photometry_results : dict
+        Mapping of ``source_id`` (str) → 1-D numpy array of flux measurements
+        across all frames.
+    light_curve : object | None
+        ``astropy.table.Table`` of the target light curve (time, flux, flux_err
+        columns), or ``None`` if photometry has not been run.
     """
 
-    frames: list[FitsFrame] = field(default_factory=list)
-    catalog_matches: dict[str, Any] = field(default_factory=dict)
-    photometry: list[PhotometryResult] = field(default_factory=list)
-    target_name: str = ""
+    fits_paths: list[Path] = field(default_factory=list)
+    image_stack: Optional[np.ndarray] = None
+    headers: list = field(default_factory=list)
+    wcs: Optional[object] = None
+    catalog_matches: Optional[object] = None
+    photometry_results: dict = field(default_factory=dict)
+    light_curve: Optional[object] = None
 
     # ------------------------------------------------------------------
     # Convenience helpers
     # ------------------------------------------------------------------
 
-    def add_frame(self, frame: FitsFrame) -> None:
-        """Append *frame* to the session frame list.
-
-        Parameters
-        ----------
-        frame : FitsFrame
-            The frame to append.
-        """
-        self.frames.append(frame)
-
     def clear(self) -> None:
         """Reset the session to an empty state."""
-        self.frames.clear()
-        self.catalog_matches.clear()
-        self.photometry.clear()
-        self.target_name = ""
+        self.fits_paths.clear()
+        self.image_stack = None
+        self.headers.clear()
+        self.wcs = None
+        self.catalog_matches = None
+        self.photometry_results.clear()
+        self.light_curve = None
 
     @property
     def frame_count(self) -> int:
         """Number of frames currently loaded."""
-        return len(self.frames)
+        return len(self.fits_paths)
+
+    @property
+    def is_loaded(self) -> bool:
+        """``True`` if at least one frame is in the session."""
+        return self.image_stack is not None and len(self.fits_paths) > 0
 
     @property
     def is_plate_solved(self) -> bool:
-        """``True`` if every loaded frame has a WCS solution."""
-        return bool(self.frames) and all(f.wcs is not None for f in self.frames)
+        """``True`` if the session has a WCS solution."""
+        return self.wcs is not None

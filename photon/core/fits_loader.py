@@ -1,76 +1,89 @@
 """FITS ingestion module.
 
-Loads FITS files from disk, validates them, and returns ``FitsFrame`` objects.
-All I/O happens synchronously; call this from a worker thread, not the UI thread.
+Loads sequences of calibrated FITS files from disk and returns stacked numpy
+arrays suitable for photometry and astrometry pipelines.  All I/O is
+synchronous; call these functions from a worker thread, never from the UI
+thread.
 """
 
 from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import Any
 
 import numpy as np
 from astropy.io import fits
-from astropy.wcs import WCS, FITSFixedWarning
-import warnings
-
-from photon.core.session import FitsFrame
+from astropy.stats import sigma_clipped_stats
+from astropy.time import Time
 
 logger = logging.getLogger(__name__)
 
 
-class FitsLoadError(Exception):
-    """Raised when a FITS file cannot be loaded or is structurally invalid."""
-
-
-def load_fits(path: str | Path) -> FitsFrame:
-    """Load a FITS file and return a ``FitsFrame``.
-
-    Supports single-extension FITS and multi-extension FITS (MEF).  For MEF
-    files the first image extension with 2-D or 3-D data is used.  The pixel
-    array is converted to ``float32`` to keep memory predictable.
+def load_fits_sequence(paths: list[Path]) -> tuple[np.ndarray, list]:
+    """Load a sequence of calibrated FITS files into a 3-D numpy array.
 
     Parameters
     ----------
-    path : str | Path
-        Path to the FITS file on disk.
+    paths : list[Path]
+        Ordered list of FITS file paths.  All files must have identical
+        spatial dimensions.
 
     Returns
     -------
-    FitsFrame
-        Loaded frame with ``data``, ``header``, and ``wcs`` populated.  ``wcs``
-        is ``None`` when no valid WCS is present in the header.
+    image_stack : np.ndarray
+        Array of shape ``(N, height, width)`` with dtype ``float64``.
+    headers : list of astropy.io.fits.Header
+        One header per frame, preserving all original keywords.
 
     Raises
     ------
-    FitsLoadError
-        If the file does not exist, is not a valid FITS file, or contains no
-        usable image data.
+    ValueError
+        If *paths* is empty or frames have inconsistent spatial dimensions.
+    FileNotFoundError
+        If any path does not exist.
+    OSError
+        If any file cannot be opened as a valid FITS file.
     """
-    path = Path(path)
-    if not path.exists():
-        raise FitsLoadError(f"File not found: {path}")
+    if not paths:
+        raise ValueError("load_fits_sequence requires at least one path.")
 
-    logger.debug("Loading FITS file: %s", path)
+    frames: list[np.ndarray] = []
+    headers: list[fits.Header] = []
+    reference_shape: tuple[int, int] | None = None
 
-    try:
+    for path in paths:
+        path = Path(path)
+        if not path.exists():
+            raise FileNotFoundError(f"FITS file not found: {path}")
+
+        logger.debug("Loading %s", path)
         with fits.open(path, memmap=False) as hdul:
             hdul.verify("silentfix")
-            primary_header = dict(hdul[0].header)
-            data, header = _extract_image(hdul)
-    except OSError as exc:
-        raise FitsLoadError(f"Cannot open FITS file {path}: {exc}") from exc
+            data, header = _extract_image_and_header(hdul)
 
-    data = data.astype(np.float32)
-    wcs = _extract_wcs(header)
+        data = data.astype(np.float64)
 
-    logger.info("Loaded %s — shape %s, dtype %s", path.name, data.shape, data.dtype)
-    return FitsFrame(path=path.resolve(), data=data, header=header, wcs=wcs)
+        if reference_shape is None:
+            reference_shape = data.shape
+        elif data.shape != reference_shape:
+            raise ValueError(
+                f"Frame dimension mismatch: expected {reference_shape}, "
+                f"got {data.shape} for {path.name}"
+            )
+
+        frames.append(data)
+        headers.append(header)
+        logger.info("Loaded %s — shape %s", path.name, data.shape)
+
+    image_stack = np.stack(frames, axis=0)
+    logger.info(
+        "Loaded sequence of %d frame(s), stack shape %s", len(frames), image_stack.shape
+    )
+    return image_stack, headers
 
 
-def _extract_image(hdul: fits.HDUList) -> tuple[np.ndarray, dict[str, Any]]:
-    """Return the first usable image array and its header from *hdul*.
+def _extract_image_and_header(hdul: fits.HDUList) -> tuple[np.ndarray, fits.Header]:
+    """Return the first usable 2-D image array and its header from *hdul*.
 
     Parameters
     ----------
@@ -79,104 +92,145 @@ def _extract_image(hdul: fits.HDUList) -> tuple[np.ndarray, dict[str, Any]]:
 
     Returns
     -------
-    tuple[np.ndarray, dict[str, Any]]
-        Pixel data and header dict.
+    tuple[np.ndarray, fits.Header]
+        Pixel data and FITS header.
 
     Raises
     ------
-    FitsLoadError
-        If no image HDU with at least 2 dimensions is found.
+    ValueError
+        If no 2-D image HDU is found.
     """
-    # Try primary HDU first
-    if hdul[0].data is not None and hdul[0].data.ndim >= 2:
-        return hdul[0].data, dict(hdul[0].header)
+    # Primary HDU first
+    if hdul[0].data is not None and hdul[0].data.ndim == 2:
+        return hdul[0].data, hdul[0].header
+
+    # For 3-D primary (e.g. RGB cube), use first plane
+    if hdul[0].data is not None and hdul[0].data.ndim == 3:
+        return hdul[0].data[0], hdul[0].header
 
     # Search extensions
     for hdu in hdul[1:]:
         if isinstance(hdu, (fits.ImageHDU, fits.CompImageHDU)):
             if hdu.data is not None and hdu.data.ndim >= 2:
-                return hdu.data, dict(hdu.header)
+                data = hdu.data if hdu.data.ndim == 2 else hdu.data[0]
+                return data, hdu.header
 
-    raise FitsLoadError("No 2-D or 3-D image data found in any HDU.")
-
-
-def _extract_wcs(header: dict[str, Any]) -> WCS | None:
-    """Build a ``WCS`` from *header* if the header contains WCS keywords.
-
-    Parameters
-    ----------
-    header : dict[str, Any]
-        FITS header as a plain dict.
-
-    Returns
-    -------
-    WCS | None
-        Parsed WCS object, or ``None`` if no WCS keywords are present or the
-        header cannot be parsed.
-    """
-    # Quick check — requires at least CRPIX1 and CRVAL1
-    if "CRPIX1" not in header or "CRVAL1" not in header:
-        return None
-
-    fits_header = fits.Header(header)
-    try:
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore", FITSFixedWarning)
-            wcs = WCS(fits_header, naxis=2)
-        if wcs.has_celestial:
-            return wcs
-        return None
-    except Exception as exc:  # astropy raises various internal errors
-        logger.warning("Could not parse WCS from header: %s", exc)
-        return None
+    raise ValueError("No 2-D image data found in any HDU.")
 
 
-def debayer(data: np.ndarray, pattern: str = "RGGB") -> np.ndarray:
-    """Debayer a raw Bayer-mosaic frame to a 3-channel RGB array.
+def get_observation_times(headers: list) -> Time:
+    """Extract observation timestamps from a list of FITS headers.
 
-    This is a simple bilinear debayer suitable for preview only.  Use a
-    dedicated library (e.g. ``colour-demosaicing``) for science-grade results.
+    Tries the following keywords in order: ``DATE-OBS``, ``JD``, ``MJD``.
+    The first keyword found in the first header is used for all frames.
 
     Parameters
     ----------
-    data : np.ndarray
-        2-D raw sensor array.
-    pattern : str
-        Bayer CFA pattern string.  One of ``"RGGB"``, ``"BGGR"``, ``"GRBG"``,
-        ``"GBRG"``.
+    headers : list of astropy.io.fits.Header
+        One header per frame.
 
     Returns
     -------
-    np.ndarray
-        3-D array of shape ``(H, W, 3)`` with dtype ``float32``.
+    astropy.time.Time
+        Time array with one element per frame, in UTC scale.
 
     Raises
     ------
     ValueError
-        If *data* is not 2-D or *pattern* is unrecognised.
+        If no recognised time keyword is found in any header.
     """
-    if data.ndim != 2:
-        raise ValueError(f"debayer expects a 2-D array, got shape {data.shape}")
-    if pattern not in {"RGGB", "BGGR", "GRBG", "GBRG"}:
-        raise ValueError(f"Unknown Bayer pattern: {pattern!r}")
+    if not headers:
+        raise ValueError("headers list is empty.")
 
-    h, w = data.shape
-    rgb = np.zeros((h, w, 3), dtype=np.float32)
+    time_values: list[float | str] = []
+    time_format: str | None = None
+    time_scale: str = "utc"
 
-    offsets = {
-        "RGGB": {"R": (0, 0), "G1": (0, 1), "G2": (1, 0), "B": (1, 1)},
-        "BGGR": {"R": (1, 1), "G1": (0, 1), "G2": (1, 0), "B": (0, 0)},
-        "GRBG": {"R": (0, 1), "G1": (0, 0), "G2": (1, 1), "B": (1, 0)},
-        "GBRG": {"R": (1, 0), "G1": (0, 0), "G2": (1, 1), "B": (0, 1)},
+    # Determine which keyword is available using the first header
+    first = headers[0]
+    if "DATE-OBS" in first:
+        time_format = "isot"
+        for h in headers:
+            value = h.get("DATE-OBS", "")
+            if not value:
+                raise ValueError("DATE-OBS keyword is missing or empty in one or more headers.")
+            time_values.append(value)
+    elif "JD" in first:
+        time_format = "jd"
+        time_scale = "utc"
+        for h in headers:
+            if "JD" not in h:
+                raise ValueError("JD keyword is missing in one or more headers.")
+            time_values.append(float(h["JD"]))
+    elif "MJD" in first:
+        time_format = "mjd"
+        time_scale = "utc"
+        for h in headers:
+            if "MJD" not in h:
+                raise ValueError("MJD keyword is missing in one or more headers.")
+            time_values.append(float(h["MJD"]))
+    else:
+        raise ValueError(
+            "No recognised time keyword (DATE-OBS, JD, MJD) found in headers."
+        )
+
+    logger.debug("Parsed %d timestamps using keyword format=%s", len(time_values), time_format)
+    return Time(time_values, format=time_format, scale=time_scale)
+
+
+def summarize_sequence(paths: list[Path], stack: np.ndarray, headers: list) -> dict:
+    """Return a dict of human-readable metadata about a loaded FITS sequence.
+
+    Parameters
+    ----------
+    paths : list[Path]
+        Ordered list of FITS file paths (same order as *stack* and *headers*).
+    stack : np.ndarray
+        Image stack of shape ``(N, height, width)``.
+    headers : list of astropy.io.fits.Header
+        One header per frame.
+
+    Returns
+    -------
+    dict
+        Dictionary with keys:
+
+        ``n_frames``
+            Number of frames.
+        ``dimensions``
+            String ``"height × width"`` in pixels.
+        ``filter``
+            Value of the ``FILTER`` header keyword, or ``"unknown"`` if absent.
+        ``date_range``
+            String ``"start → end"`` in ISO format, or ``"unknown"`` if no time
+            keyword is present.
+        ``median_sky``
+            Sigma-clipped median background estimate (ADU) from the first frame,
+            as a float rounded to 2 decimal places.
+    """
+    n, height, width = stack.shape
+    first_header = headers[0] if headers else {}
+
+    filter_name = first_header.get("FILTER", "unknown") if headers else "unknown"
+
+    # Date range
+    date_range = "unknown"
+    try:
+        times = get_observation_times(headers)
+        if len(times) == 1:
+            date_range = times[0].isot
+        else:
+            date_range = f"{times[0].isot} → {times[-1].isot}"
+    except ValueError:
+        pass
+
+    # Sigma-clipped background estimate from first frame
+    _, median, _ = sigma_clipped_stats(stack[0], sigma=3.0)
+
+    return {
+        "n_frames": n,
+        "dimensions": f"{height} × {width}",
+        "filter": str(filter_name),
+        "date_range": date_range,
+        "median_sky": round(float(median), 2),
     }
-    o = offsets[pattern]
-
-    # Red channel
-    rgb[o["R"][0]::2, o["R"][1]::2, 0] = data[o["R"][0]::2, o["R"][1]::2]
-    # Green channel — average of two green sub-arrays
-    rgb[o["G1"][0]::2, o["G1"][1]::2, 1] = data[o["G1"][0]::2, o["G1"][1]::2]
-    rgb[o["G2"][0]::2, o["G2"][1]::2, 1] = data[o["G2"][0]::2, o["G2"][1]::2]
-    # Blue channel
-    rgb[o["B"][0]::2, o["B"][1]::2, 2] = data[o["B"][0]::2, o["B"][1]::2]
-
-    return rgb

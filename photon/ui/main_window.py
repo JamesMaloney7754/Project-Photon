@@ -9,9 +9,9 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
+import numpy as np
 from PySide6.QtCore import QThreadPool, Qt
 from PySide6.QtWidgets import (
-    QDockWidget,
     QFileDialog,
     QLabel,
     QMainWindow,
@@ -26,7 +26,7 @@ from photon.core.session import PhotonSession
 from photon.ui.fits_canvas import FitsCanvas
 from photon.ui.light_curve_panel import LightCurvePanel
 from photon.ui.transit_panel import TransitPanel
-from photon.workers.fits_worker import FitsWorker
+from photon.workers.fits_worker import FitsLoaderWorker
 
 logger = logging.getLogger(__name__)
 
@@ -63,12 +63,10 @@ class MainWindow(QMainWindow):
         """Create central widget layout."""
         splitter = QSplitter(Qt.Horizontal)
 
-        # Left: FITS canvas
         self._fits_canvas = FitsCanvas()
         self._fits_canvas.pixel_clicked.connect(self._on_pixel_clicked)
         splitter.addWidget(self._fits_canvas)
 
-        # Right: tabbed analysis panels
         self._tab_widget = QTabWidget()
         self._tab_widget.addTab(LightCurvePanel(), "Light Curve")
         self._tab_widget.addTab(TransitPanel(), "Transit Fit")
@@ -89,9 +87,10 @@ class MainWindow(QMainWindow):
         file_menu.addAction("&Quit", self.close, "Ctrl+Q")
 
         view_menu = menu_bar.addMenu("&View")
-        view_menu.addAction("ZScale stretch", lambda: self._apply_stretch("asinh", "zscale"))
-        view_menu.addAction("Linear stretch", lambda: self._apply_stretch("linear", "minmax"))
-        view_menu.addAction("Sqrt stretch", lambda: self._apply_stretch("sqrt", "zscale"))
+        view_menu.addAction("asinh stretch", lambda: self._apply_stretch("asinh"))
+        view_menu.addAction("linear stretch", lambda: self._apply_stretch("linear"))
+        view_menu.addAction("sqrt stretch", lambda: self._apply_stretch("sqrt"))
+        view_menu.addAction("log stretch", lambda: self._apply_stretch("log"))
 
     def _build_toolbar(self) -> None:
         """Create the main toolbar."""
@@ -115,7 +114,7 @@ class MainWindow(QMainWindow):
     # ------------------------------------------------------------------
 
     def _open_fits(self) -> None:
-        """Show a file dialog and dispatch a FitsWorker to load the selection."""
+        """Show a file dialog and dispatch a FitsLoaderWorker for the selection."""
         paths, _ = QFileDialog.getOpenFileNames(
             self,
             "Open FITS File(s)",
@@ -124,80 +123,81 @@ class MainWindow(QMainWindow):
         )
         if not paths:
             return
-        for path in paths:
-            self._load_fits_async(Path(path))
+        self._load_fits_async([Path(p) for p in paths])
 
-    def _load_fits_async(self, path: Path) -> None:
-        """Dispatch a :class:`~photon.workers.fits_worker.FitsWorker` for *path*.
+    def _load_fits_async(self, paths: list[Path]) -> None:
+        """Dispatch a :class:`~photon.workers.fits_worker.FitsLoaderWorker`.
 
         Parameters
         ----------
-        path : Path
-            FITS file to load.
+        paths : list[Path]
+            FITS files to load as a sequence.
         """
-        self._set_status(f"Loading {path.name}…")
+        names = ", ".join(p.name for p in paths[:3])
+        suffix = f" (+{len(paths) - 3} more)" if len(paths) > 3 else ""
+        self._set_status(f"Loading {names}{suffix}…")
         self._progress_bar.setVisible(True)
         self._progress_bar.setRange(0, 0)  # indeterminate
 
-        worker = FitsWorker(path)
-        worker.signals.result.connect(self._on_fits_loaded)
+        worker = FitsLoaderWorker(paths)
+        worker.signals.result.connect(self._on_stack_loaded)
         worker.signals.error.connect(self._on_worker_error)
         worker.signals.finished.connect(self._on_worker_finished)
         self._thread_pool.start(worker)
 
-    def _apply_stretch(self, stretch: str, interval: str) -> None:
+    def _apply_stretch(self, stretch: str) -> None:
         """Restretch the currently displayed frame.
 
         Parameters
         ----------
         stretch : str
-            Stretch algorithm name.
-        interval : str
-            Interval algorithm name.
+            Stretch algorithm name passed to :func:`~photon.utils.stretch.stretch_image`.
         """
-        if not self._session.frames:
+        if not self._session.is_loaded:
             return
-        frame = self._session.frames[-1]
-        self._fits_canvas.display_frame(frame.data, stretch=stretch, interval=interval)
+        self._fits_canvas.display_data(self._session.image_stack[0], stretch=stretch)
 
     # ------------------------------------------------------------------
     # Slots
     # ------------------------------------------------------------------
 
-    def _on_fits_loaded(self, frame: object) -> None:
-        """Handle a successfully loaded FitsFrame.
+    def _on_stack_loaded(self, payload: object) -> None:
+        """Handle a successfully loaded ``(stack, headers)`` tuple.
 
         Parameters
         ----------
-        frame : FitsFrame
-            The loaded frame (typed as ``object`` to satisfy Qt signal rules).
+        payload : tuple[np.ndarray, list]
+            Return value from :class:`~photon.workers.fits_worker.FitsLoaderWorker`.
         """
-        from photon.core.session import FitsFrame
-
-        if not isinstance(frame, FitsFrame):
-            logger.error("Unexpected result type from FitsWorker: %s", type(frame))
+        if not isinstance(payload, tuple) or len(payload) != 2:
+            logger.error("Unexpected payload type from FitsLoaderWorker: %s", type(payload))
             return
 
-        self._session.add_frame(frame)
-        self._fits_canvas.display_frame(frame.data)
-        wcs_status = " (WCS present)" if frame.wcs is not None else ""
-        self._set_status(f"Loaded {frame.path.name}{wcs_status} — {self._session.frame_count} frame(s).")
-        logger.info("Frame added to session: %s", frame.path.name)
+        stack, headers = payload
+        self._session.image_stack = stack
+        self._session.headers = headers
 
-    def _on_worker_error(self, exc_type: object, exc: object, tb: str) -> None:
-        """Display worker error in the status bar.
+        n = stack.shape[0]
+        h, w = stack.shape[1], stack.shape[2]
+        self._fits_canvas.display_data(stack[0])
+        self._set_status(
+            f"Loaded {n} frame(s) — {h} × {w} px"
+            + (" | WCS present" if self._session.is_plate_solved else "")
+        )
+        logger.info("Stack loaded: shape %s", stack.shape)
+
+    def _on_worker_error(self, traceback_str: str) -> None:
+        """Display a worker error in the status bar.
 
         Parameters
         ----------
-        exc_type : type
-            Exception class.
-        exc : Exception
-            Exception instance.
-        tb : str
-            Formatted traceback string.
+        traceback_str : str
+            Formatted traceback from the worker.
         """
-        self._set_status(f"Error: {exc}")
-        logger.error("Worker error: %s\n%s", exc, tb)
+        # Show just the last line (the exception message) in the status bar
+        last_line = traceback_str.strip().splitlines()[-1]
+        self._set_status(f"Error: {last_line}")
+        logger.error("Worker error:\n%s", traceback_str)
 
     def _on_worker_finished(self) -> None:
         """Hide the progress bar when the worker finishes."""
@@ -214,24 +214,20 @@ class MainWindow(QMainWindow):
         y : float
             Pixel y-coordinate (row).
         """
-        if not self._session.frames:
+        if not self._session.is_loaded:
             return
-        data = self._session.frames[-1].data
+        data = self._session.image_stack[0]
         xi, yi = int(round(x)), int(round(y))
         if 0 <= yi < data.shape[0] and 0 <= xi < data.shape[1]:
             value = data[yi, xi]
-            self._set_status(f"Pixel ({xi}, {yi}) = {value:.1f} ADU")
-        # Check WCS
-        wcs = self._session.frames[-1].wcs
-        if wcs is not None:
-            try:
-                sky = wcs.pixel_to_world(x, y)
-                self._set_status(
-                    self._status_label.text()
-                    + f"  |  RA {sky.ra.deg:.5f}° Dec {sky.dec.deg:.5f}°"
-                )
-            except Exception:
-                pass
+            msg = f"Pixel ({xi}, {yi}) = {value:.1f} ADU"
+            if self._session.wcs is not None:
+                try:
+                    sky = self._session.wcs.pixel_to_world(x, y)
+                    msg += f"  |  RA {sky.ra.deg:.5f}° Dec {sky.dec.deg:.5f}°"
+                except Exception:
+                    pass
+            self._set_status(msg)
 
     # ------------------------------------------------------------------
     # Helpers
