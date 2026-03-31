@@ -59,6 +59,8 @@ transit parameters — all within a single PySide6 GUI.
 | `photon/core/photometry.py` | Aperture photometry using `photutils`. |
 | `photon/core/transit.py` | Transit parameter extraction from detrended light curves. |
 | `photon/ui/main_window.py` | `QMainWindow` subclass; owns `PhotonSession`; orchestrates workers and panels. |
+| `photon/ui/background_widget.py` | `BackgroundWidget` — radial gradient deep space background; central widget of MainWindow. |
+| `photon/ui/glass_panel.py` | `GlassPanel` — base class for floating glass-effect panels (sidebar, inspector). |
 | `photon/ui/fits_canvas.py` | Matplotlib-in-Qt widget for interactive FITS image display. |
 | `photon/ui/light_curve_panel.py` | Placeholder `QWidget` for photometric light curve display. |
 | `photon/ui/transit_panel.py` | Placeholder `QWidget` for transit model fit display. |
@@ -117,74 +119,133 @@ transit parameters — all within a single PySide6 GUI.
 
 ---
 
-## UI Design System — Observatory Glass
+## UI Design System — Deep Field
 
 All visual decisions are encoded in `photon/ui/theme.py`.  This section documents
 the rules that all UI contributors must follow.
 
+### Astronomical Inspiration
+
+The Deep Field visual language draws from observatory instrument panels and deep
+space imagery: a near-black background with subtle violet nebula bloom (the
+`BackgroundWidget` radial gradient), glass panels that float over the starfield,
+and gold accent text for science values — reminiscent of instrument readouts.
+
+### Two-Accent System
+
+| Accent | Color | Semantic use |
+|--------|-------|-------------|
+| **Violet** (`Colors.VIOLET` `#7c3aed`) | Actions, navigation, active states, selection |
+| **Gold** (`Colors.GOLD` / `Colors.TEXT_GOLD`) | Science data values, measurements, coordinates |
+
+Use violet for anything the user *does*; use gold for anything the app *shows*.
+
 ### Color Tokens
 
-| Token | Hex | Use |
-|-------|-----|-----|
-| `Colors.BASE` | `#0d1117` | Application background, root QWidget |
-| `Colors.SURFACE` | `#161b22` | Panel backgrounds (sidebar, inspector, top bar) |
-| `Colors.SURFACE_ALT` | `#1c2333` | Hover states, secondary surfaces |
-| `Colors.BORDER` | `#21262d` | All 1 px dividers and outlines |
-| `Colors.BORDER_FOCUS` | `#388bfd` | Focus ring on inputs |
-| `Colors.ACCENT_PRIMARY` | `#7c3aed` | Primary CTA buttons, active stepper circles, selection highlight |
-| `Colors.ACCENT_SECONDARY` | `#3b82f6` | Info states, secondary actions |
-| `Colors.ACCENT_SUCCESS` | `#10b981` | Completed pipeline steps, success indicators |
-| `Colors.ACCENT_WARNING` | `#f59e0b` | Warnings |
-| `Colors.ACCENT_DANGER` | `#ef4444` | Error states |
-| `Colors.TEXT_PRIMARY` | `#e2e8f0` | All body text |
-| `Colors.TEXT_SECONDARY` | `#8b949e` | Labels, captions, metadata keys |
-| `Colors.TEXT_DISABLED` | `#484f58` | Disabled widget text, inactive stepper labels |
-| `Colors.TEXT_ACCENT` | `#a78bfa` | Highlighted values, accent text |
-| `Colors.CANVAS_BG` | `#080c10` | Matplotlib figure and axes background |
+| Token | Value | Use |
+|-------|-------|-----|
+| `Colors.BASE_CENTER` | `#0a0f1a` | Radial gradient centre of background |
+| `Colors.BASE_EDGE` | `#060810` | Radial gradient edge of background |
+| `Colors.GLASS_SURFACE` | `#111827` | Solid fill for glass panels |
+| `Colors.SURFACE` | `#111827` | General panel surface |
+| `Colors.SURFACE_ALT` | `#1a2235` | Hover states, secondary surfaces |
+| `Colors.SURFACE_RAISED` | `#1f2d45` | Elevated surfaces (menus, tooltips) |
+| `Colors.BORDER` | `#1e2d45` | All 1 px dividers and outlines |
+| `Colors.BORDER_SUBTLE` | `#152032` | Very faint separators between data rows |
+| `Colors.VIOLET` | `#7c3aed` | Primary actions, active stepper, selection |
+| `Colors.VIOLET_BRIGHT` | `#8b5cf6` | Hover state for violet elements |
+| `Colors.VIOLET_GLOW` | `rgba(124,58,237,40)` | Glow ring / aura effects |
+| `Colors.GOLD` | `#f59e0b` | Science data accent background tints |
+| `Colors.SUCCESS` | `#10b981` | Completed steps, loaded indicator |
+| `Colors.TEXT_PRIMARY` | `#f0f4ff` | Body text (slightly blue-tinted white) |
+| `Colors.TEXT_SECONDARY` | `#6b7fa3` | Labels, captions, metadata keys |
+| `Colors.TEXT_DISABLED` | `#2d3f5c` | Disabled text, inactive elements |
+| `Colors.TEXT_GOLD` | `#fbbf24` | Science values, coordinates, measurements |
+| `Colors.CANVAS_BG` | `#04060d` | Matplotlib figure background |
 
 **Rule: no hardcoded hex values anywhere in `photon/ui/` except `theme.py`.**
-Reference `Colors.<TOKEN>` everywhere else.  The linter should flag any raw `#rrggbb`
-string outside `theme.py`.
+For QPainter code that requires `QColor(r, g, b, a)` integers, add a comment
+referencing the Colors token (e.g. `# Colors.VIOLET`).
+
+### Glass Panel Base Class
+
+`GlassPanel` (`photon/ui/glass_panel.py`) is the base class for all floating
+panels.  It paints:
+1. A rounded rect (radius 12px) filled with `QColor(17, 24, 39, 220)`.
+2. A `QLinearGradient` border stroke (bright top-left → dim bottom-right).
+3. A subtle inner top-edge highlight (top 30% clip).
+
+`SessionSidebar` and `InspectorPanel` both inherit `GlassPanel` instead of
+`QWidget`.  Do not add `setStyleSheet` background colors to GlassPanel subclasses —
+the paint override handles the background.
+
+### BackgroundWidget
+
+`BackgroundWidget` (`photon/ui/background_widget.py`) is set as the `QMainWindow`
+central widget.  It paints two radial gradients: the main deep-navy-to-black base,
+and a subtle violet bloom in the upper-right quadrant composited with
+`CompositionMode_Screen`.  The `QSplitter` sits inside it with 8px margins so the
+gradient is visible around the glass panels.
 
 ### Three-Zone Layout Architecture
 
 ```
 ┌─────────────────────────────────────────────────────┐
-│  Top bar (48 px) — logo + pipeline stepper          │
+│  Top bar (56 px) — hexagon logo + pill stepper + ⚙  │
 ├──────────────┬──────────────────────┬───────────────┤
 │  Session     │                      │  Inspector    │
 │  Sidebar     │    FitsCanvas        │  Panel        │
 │  (260 px)    │    (flexible)        │  (260 px)     │
-│              │                      │               │
+│  GlassPanel  │    (no border)       │  GlassPanel   │
 ├──────────────┴──────────────────────┴───────────────┤
-│  Bottom bar (36 px) — status · progress · scrubber  │
+│  Bottom bar (44 px) — dot · status · scrubber       │
 └─────────────────────────────────────────────────────┘
 ```
 
-**Why three zones?**
-- Beginners use the sidebar (simple file list) and bottom bar (scrubber) without
-  needing to understand the inspector.
-- Power users use the inspector for detailed per-frame metadata and pipeline
-  configuration without cluttering the canvas.
-- The canvas is always the largest pane and never collapses.
+### Pipeline Stepper — Floating Pill
 
-### Pipeline Stepper — Primary Navigation Metaphor
+`PipelineStepperWidget` is a fixed 480×52px pill that floats in the top bar,
+centered with `AlignCenter`.  It has:
+- A `glow_radius` Property animated 6→10px looping with SineCurve (1200ms).
+  This creates a breathing pulse on the active step circle.
+- A `bg_opacity` Property animated on hover (180→210, 150ms).
+- Drop shadow: concentric low-opacity ellipses below the pill.
 
-The four steps (Load → Solve → Photometry → Transit) map the science workflow.
-`PipelineStepperWidget` in the top bar is the persistent progress indicator.
-Clicking a step calls `MainWindow._set_pipeline_step(index)` which:
-1. Updates the stepper's active circle.
-2. Switches the `InspectorPanel` to the matching page.
+Steps are marked complete via `set_step_complete(index)` — completed steps show
+a painted QPainter checkmark, not a text "✓".
 
-Steps are marked complete via `set_step_complete(index)` after a successful
-worker run; they show a green ✓.
+### Inspector Panel — DataRow Widgets
 
-### Inspector Panel — Context Switching
+`InspectorPanel` uses `DataRow(QWidget)` for every key-value pair instead of
+`QLabel`.  `DataRow` paints itself with a `flash` Property (float 0.0–1.0) that
+interpolates the value color from `TEXT_GOLD` → white on each call to
+`set_value()`, driven by a 300ms `QPropertyAnimation`.
 
-`InspectorPanel` wraps a `QStackedWidget` with one page per pipeline step.
-`set_step(index)` switches the visible page.  `update_*` methods refresh
-individual page values without switching the page; the main window calls both
-after a worker completes.
+The inspector title label fades out (150ms) and fades in (150ms) when
+`set_step()` is called.
+
+### Animation Inventory
+
+| Widget | Property | Duration | Trigger |
+|--------|----------|----------|---------|
+| `PipelineStepperWidget` | `glow_radius` (int) | 1200ms loop | Always (breathing pulse) |
+| `PipelineStepperWidget` | `bg_opacity` (int) | 150ms | enter/leaveEvent |
+| `DataRow` | `flash` (float) | 300ms | `set_value()` call |
+| `InspectorPanel._title_lbl` | `opacity` via QGraphicsOpacityEffect | 150ms out + 150ms in | `set_step()` |
+| `FitsCanvas._mpl_wrapper` | `opacity` via QGraphicsOpacityEffect | 400ms | First `display_frame()` |
+| `BottomBarWidget._progress` | `opacity` via QGraphicsOpacityEffect | 200ms | `show_progress()` |
+| `_PulseDot` | `dot_alpha` (int) | 1500ms loop | Always (loaded/unloaded dot) |
+| `MainWindow` panels | `opacity` via QGraphicsOpacityEffect | 300ms staggered | `showEvent` launch |
+
+**Rules:**
+- All animations use `QPropertyAnimation` — no manual `QTimer`-driven alpha
+  interpolation except for continuous effects (`_scan_offset` shimmer,
+  `_PulseDot` breathing).
+- Remove `QGraphicsOpacityEffect` from launch-animated panels after they
+  complete (via `QTimer.singleShot`) — opacity effects interfere with child
+  widget painting if left attached.
+- Custom animatable properties are defined with `Property(type, getter, setter)`
+  as class variables (PySide6 style), not `@Property` decorator chains.
 
 ### Drag-and-Drop — Files and Folders
 
@@ -192,6 +253,10 @@ after a worker completes.
 - Individual `*.fits` / `*.fit` files.
 - Directories — recursively globbed with `Path.rglob("*.fits")`.
 - Mixed drops combining both.
+
+While a drag is active (`_drag_active = True`), `FitsCanvas.paintEvent` overlays
+a violet tint (`rgba(124,58,237,40)`) and dashed violet border over the entire
+canvas.
 
 Results are deduplicated, sorted, and emitted as a `list[Path]` via
 `files_dropped`.  `MainWindow` wires this signal to `_load_paths`, so the full

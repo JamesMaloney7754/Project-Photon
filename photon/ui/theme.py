@@ -1,4 +1,4 @@
-"""Observatory Glass design system — single source of truth for all UI tokens.
+"""Deep Field design system — single source of truth for all UI tokens.
 
 Every color, font size, and spacing value used anywhere in ``photon/ui/`` must
 reference a constant from this module.  No hardcoded hex values are permitted
@@ -12,50 +12,86 @@ from PySide6.QtWidgets import QApplication
 
 
 class Colors:
-    """Color palette for the Observatory Glass theme."""
+    """Color palette for the Deep Field theme."""
 
-    # Backgrounds
-    BASE         = "#0d1117"   # App background
-    SURFACE      = "#161b22"   # Panel / card surfaces
-    SURFACE_ALT  = "#1c2333"   # Slightly lighter surface (hover states)
-    BORDER       = "#21262d"   # Subtle 1px borders
-    BORDER_FOCUS = "#388bfd"   # Focused element border
+    # Backgrounds — deep space gradient system
+    BASE_CENTER     = "#0a0f1a"   # Deep navy — radial gradient center
+    BASE_EDGE       = "#060810"   # Near black — radial gradient edge
 
-    # Accents — violet-to-blue spectrum (nods to stellar spectral colors)
-    ACCENT_PRIMARY   = "#7c3aed"   # Violet — primary actions
-    ACCENT_SECONDARY = "#3b82f6"   # Blue — secondary / info
-    ACCENT_SUCCESS   = "#10b981"   # Green — success / complete
-    ACCENT_WARNING   = "#f59e0b"   # Amber — warnings
-    ACCENT_DANGER    = "#ef4444"   # Red — errors
+    # Panel surfaces — glass effect
+    GLASS_BG        = "rgba(255, 255, 255, 12)"
+    GLASS_BORDER_LT = "rgba(255, 255, 255, 30)"
+    GLASS_BORDER_DK = "rgba(255, 255, 255, 6)"
+    GLASS_SURFACE   = "#111827"
+
+    SURFACE         = "#111827"
+    SURFACE_ALT     = "#1a2235"
+    SURFACE_RAISED  = "#1f2d45"
+    BORDER          = "#1e2d45"
+    BORDER_SUBTLE   = "#152032"
+
+    # Accents — violet (actions / navigation)
+    VIOLET          = "#7c3aed"
+    VIOLET_BRIGHT   = "#8b5cf6"
+    VIOLET_GLOW     = "rgba(124, 58, 237, 40)"
+    VIOLET_DIM      = "rgba(124, 58, 237, 20)"
+
+    BLUE            = "#3b82f6"
+    BLUE_GLOW       = "rgba(59, 130, 246, 30)"
+
+    # Science data accent — gold/amber for measurements and values
+    GOLD            = "#f59e0b"
+    GOLD_DIM        = "rgba(245, 158, 11, 20)"
+
+    SUCCESS         = "#10b981"
+    SUCCESS_GLOW    = "rgba(16, 185, 129, 30)"
+    WARNING         = "#f59e0b"
+    DANGER          = "#ef4444"
 
     # Text
-    TEXT_PRIMARY   = "#e2e8f0"   # Primary readable text
-    TEXT_SECONDARY = "#8b949e"   # Subdued labels
-    TEXT_DISABLED  = "#484f58"   # Disabled state
-    TEXT_ACCENT    = "#a78bfa"   # Highlighted / accent text (light violet)
+    TEXT_PRIMARY    = "#f0f4ff"   # Slightly blue-tinted white
+    TEXT_SECONDARY  = "#6b7fa3"   # Muted blue-grey
+    TEXT_DISABLED   = "#2d3f5c"
+    TEXT_GOLD       = "#fbbf24"   # Science values
+    TEXT_ACCENT     = "#a78bfa"   # Light violet highlights
 
-    # Matplotlib canvas background
-    CANVAS_BG = "#080c10"        # Slightly darker than BASE for the image area
+    # Canvas
+    CANVAS_BG       = "#04060d"
+
+    # Legacy aliases — keep old callers working
+    ACCENT_PRIMARY   = VIOLET
+    ACCENT_SECONDARY = BLUE
+    ACCENT_SUCCESS   = SUCCESS
+    ACCENT_WARNING   = WARNING
+    ACCENT_DANGER    = DANGER
+    BASE             = BASE_CENTER
+    BORDER_FOCUS     = "#388bfd"
 
 
 class Typography:
-    """Typography scale for the Observatory Glass theme."""
+    """Typography scale for the Deep Field theme."""
 
-    FONT_UI   = "Inter, 'Segoe UI', 'SF Pro Display', sans-serif"
-    FONT_MONO = "'JetBrains Mono', 'Cascadia Code', Consolas, monospace"
-    SIZE_XS   = 10
-    SIZE_SM   = 11
-    SIZE_BASE = 12
-    SIZE_MD   = 13
-    SIZE_LG   = 15
-    SIZE_XL   = 18
+    FONT_UI      = "Inter, 'Segoe UI Variable', 'Segoe UI', sans-serif"
+    FONT_MONO    = "'JetBrains Mono', 'Cascadia Code', Consolas, monospace"
+    FONT_DISPLAY = "Inter, 'Segoe UI Variable Display', 'Segoe UI', sans-serif"
+
+    WEIGHT_LIGHT    = 300
+    WEIGHT_REGULAR  = 400
+    WEIGHT_MEDIUM   = 500
+    WEIGHT_SEMIBOLD = 600
+    WEIGHT_BOLD     = 700
+
+    SIZE_XS   = 9
+    SIZE_SM   = 10
+    SIZE_BASE = 11
+    SIZE_MD   = 12
+    SIZE_LG   = 14
+    SIZE_XL   = 17
+    SIZE_2XL  = 22
 
 
 def build_stylesheet() -> str:
-    """Return the complete Qt stylesheet for the Observatory Glass theme.
-
-    All color and font references resolve to ``Colors`` and ``Typography``
-    constants — no hardcoded literals appear in the returned string.
+    """Return the complete Qt stylesheet for the Deep Field theme.
 
     Returns
     -------
@@ -68,15 +104,23 @@ def build_stylesheet() -> str:
 
 /* ── Base ──────────────────────────────────────────────────────────────── */
 QMainWindow, QWidget {{
-    background-color: {C.BASE};
+    background-color: {C.BASE_CENTER};
     color: {C.TEXT_PRIMARY};
-    font-family: Inter, "Segoe UI", "SF Pro Display", sans-serif;
+    font-family: Inter, "Segoe UI Variable", "Segoe UI", sans-serif;
     font-size: {T.SIZE_BASE}px;
+    border: none;
+}}
+
+/* ── Glass panel ────────────────────────────────────────────────────────── */
+QWidget#glass_panel {{
+    background-color: {C.GLASS_SURFACE};
+    border: 1px solid rgba(255, 255, 255, 20);
+    border-radius: 12px;
 }}
 
 /* ── Splitter ───────────────────────────────────────────────────────────── */
 QSplitter {{
-    background-color: {C.BASE};
+    background-color: transparent;
 }}
 QSplitter::handle {{
     background-color: {C.BORDER};
@@ -88,27 +132,31 @@ QSplitter::handle:vertical {{
     height: 1px;
 }}
 QSplitter::handle:hover {{
-    background-color: {C.BORDER_FOCUS};
+    background-color: {C.VIOLET};
 }}
 
 /* ── List Widget ────────────────────────────────────────────────────────── */
 QListWidget {{
-    background-color: {C.SURFACE};
+    background-color: transparent;
     border: none;
     outline: none;
     padding: 4px 0;
 }}
 QListWidget::item {{
-    padding: 6px 12px;
-    border-radius: 4px;
+    padding: 8px 12px;
+    border-radius: 6px;
     color: {C.TEXT_PRIMARY};
+    border-left: 2px solid transparent;
 }}
 QListWidget::item:hover {{
-    background-color: {C.SURFACE_ALT};
+    background-color: rgba(255, 255, 255, 10);
 }}
 QListWidget::item:selected {{
-    background-color: {C.ACCENT_PRIMARY};
-    color: {C.TEXT_PRIMARY};
+    background-color: {C.VIOLET_DIM};
+    border-left: 2px solid {C.VIOLET};
+}}
+QListWidget::item:focus {{
+    outline: none;
 }}
 
 /* ── Labels ─────────────────────────────────────────────────────────────── */
@@ -119,35 +167,37 @@ QLabel {{
 
 /* ── Push Buttons ───────────────────────────────────────────────────────── */
 QPushButton {{
-    background-color: {C.ACCENT_PRIMARY};
+    background-color: {C.VIOLET};
     color: {C.TEXT_PRIMARY};
     border: none;
-    border-radius: 6px;
-    padding: 6px 16px;
-    font-size: {T.SIZE_BASE}px;
-    font-weight: 500;
+    border-radius: 8px;
+    padding: 8px 18px;
+    font-size: {T.SIZE_MD}px;
+    font-weight: {T.WEIGHT_MEDIUM};
 }}
 QPushButton:hover {{
-    background-color: #6d28d9;
+    background-color: {C.VIOLET_BRIGHT};
+    border-top: 1px solid rgba(255, 255, 255, 50);
 }}
 QPushButton:pressed {{
-    background-color: #5b21b6;
+    background-color: #6d28d9;
 }}
 QPushButton:disabled {{
-    background-color: {C.BORDER};
+    background-color: {C.SURFACE_RAISED};
     color: {C.TEXT_DISABLED};
 }}
-QPushButton[secondary="true"] {{
+QPushButton[flat="true"] {{
     background-color: transparent;
     border: 1px solid {C.BORDER};
+    border-radius: 8px;
     color: {C.TEXT_PRIMARY};
 }}
-QPushButton[secondary="true"]:hover {{
-    background-color: {C.SURFACE_ALT};
-    border-color: {C.TEXT_SECONDARY};
+QPushButton[flat="true"]:hover {{
+    background-color: rgba(255, 255, 255, 13);
+    border-color: {C.VIOLET};
 }}
-QPushButton[secondary="true"]:pressed {{
-    background-color: {C.BORDER};
+QPushButton[flat="true"]:pressed {{
+    background-color: rgba(124, 58, 237, 20);
 }}
 
 /* ── Tool Buttons ───────────────────────────────────────────────────────── */
@@ -156,107 +206,104 @@ QToolButton {{
     border: none;
     color: {C.TEXT_PRIMARY};
     padding: 4px 8px;
-    border-radius: 4px;
+    border-radius: 6px;
 }}
 QToolButton:hover {{
-    background-color: {C.SURFACE_ALT};
+    background-color: rgba(255, 255, 255, 10);
 }}
 QToolButton::menu-indicator {{
     image: none;
 }}
 
-/* ── Menu Bar ───────────────────────────────────────────────────────────── */
-QMenuBar {{
-    background-color: {C.SURFACE};
-    color: {C.TEXT_PRIMARY};
-    border-bottom: 1px solid {C.BORDER};
-    padding: 2px 0;
-}}
-QMenuBar::item {{
-    background-color: transparent;
-    padding: 4px 12px;
-    border-radius: 4px;
-}}
-QMenuBar::item:selected {{
-    background-color: {C.SURFACE_ALT};
-}}
-
 /* ── Menus ──────────────────────────────────────────────────────────────── */
 QMenu {{
-    background-color: {C.SURFACE};
-    border: 1px solid {C.BORDER};
-    border-radius: 6px;
-    padding: 4px 0;
+    background-color: {C.SURFACE_RAISED};
+    border: 1px solid rgba(255, 255, 255, 20);
+    border-radius: 10px;
+    padding: 6px 0;
     color: {C.TEXT_PRIMARY};
 }}
 QMenu::item {{
-    padding: 6px 24px 6px 12px;
-    border-radius: 4px;
-    margin: 1px 4px;
+    padding: 7px 24px 7px 14px;
+    border-radius: 6px;
+    margin: 1px 6px;
 }}
 QMenu::item:selected {{
-    background-color: {C.ACCENT_PRIMARY};
+    background-color: {C.VIOLET};
     color: {C.TEXT_PRIMARY};
 }}
 QMenu::separator {{
     height: 1px;
     background-color: {C.BORDER};
-    margin: 4px 8px;
-}}
-
-/* ── Status Bar ─────────────────────────────────────────────────────────── */
-QStatusBar {{
-    background-color: {C.BASE};
-    color: {C.TEXT_SECONDARY};
-    border-top: 1px solid {C.BORDER};
-    font-size: {T.SIZE_XS}px;
+    margin: 4px 10px;
 }}
 
 /* ── Scroll Bars ────────────────────────────────────────────────────────── */
 QScrollBar:vertical {{
-    background-color: {C.SURFACE};
-    width: 6px;
+    background-color: transparent;
+    width: 4px;
     border: none;
-    border-radius: 3px;
 }}
 QScrollBar::handle:vertical {{
-    background-color: {C.BORDER};
-    border-radius: 3px;
+    background-color: rgba(255, 255, 255, 30);
+    border-radius: 2px;
     min-height: 20px;
 }}
 QScrollBar::handle:vertical:hover {{
-    background-color: {C.TEXT_SECONDARY};
+    background-color: {C.VIOLET};
 }}
 QScrollBar::add-line:vertical,
 QScrollBar::sub-line:vertical {{
     height: 0px;
 }}
 QScrollBar:horizontal {{
-    background-color: {C.SURFACE};
-    height: 6px;
+    background-color: transparent;
+    height: 4px;
     border: none;
-    border-radius: 3px;
 }}
 QScrollBar::handle:horizontal {{
-    background-color: {C.BORDER};
-    border-radius: 3px;
+    background-color: rgba(255, 255, 255, 30);
+    border-radius: 2px;
     min-width: 20px;
 }}
 QScrollBar::handle:horizontal:hover {{
-    background-color: {C.TEXT_SECONDARY};
+    background-color: {C.VIOLET};
 }}
 QScrollBar::add-line:horizontal,
 QScrollBar::sub-line:horizontal {{
     width: 0px;
 }}
 
+/* ── Sliders ────────────────────────────────────────────────────────────── */
+QSlider::groove:horizontal {{
+    height: 3px;
+    background-color: {C.BORDER};
+    border-radius: 2px;
+}}
+QSlider::handle:horizontal {{
+    background-color: {C.VIOLET};
+    border: 2px solid {C.VIOLET_BRIGHT};
+    width: 14px;
+    height: 14px;
+    border-radius: 7px;
+    margin: -6px 0;
+}}
+QSlider::handle:horizontal:hover {{
+    background-color: {C.VIOLET_BRIGHT};
+    border: 2px solid white;
+}}
+QSlider::sub-page:horizontal {{
+    background-color: {C.VIOLET};
+    border-radius: 2px;
+}}
+
 /* ── Tooltips ───────────────────────────────────────────────────────────── */
 QToolTip {{
-    background-color: {C.SURFACE};
+    background-color: {C.SURFACE_RAISED};
     color: {C.TEXT_PRIMARY};
-    border: 1px solid {C.BORDER};
-    border-radius: 4px;
-    padding: 4px 8px;
+    border: 1px solid rgba(255, 255, 255, 30);
+    border-radius: 6px;
+    padding: 6px 10px;
     font-size: {T.SIZE_SM}px;
 }}
 
@@ -265,11 +312,11 @@ QProgressBar {{
     background-color: {C.BORDER};
     border: none;
     border-radius: 2px;
-    height: 4px;
-    text-align: center;
+    height: 3px;
 }}
 QProgressBar::chunk {{
-    background-color: {C.ACCENT_PRIMARY};
+    background-color: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+        stop:0 {C.VIOLET}, stop:1 {C.BLUE});
     border-radius: 2px;
 }}
 
@@ -278,38 +325,24 @@ QLineEdit {{
     background-color: {C.SURFACE};
     color: {C.TEXT_PRIMARY};
     border: 1px solid {C.BORDER};
-    border-radius: 4px;
-    padding: 4px 8px;
-    selection-background-color: {C.ACCENT_PRIMARY};
+    border-radius: 6px;
+    padding: 5px 10px;
+    selection-background-color: {C.VIOLET};
 }}
 QLineEdit:focus {{
-    border-color: {C.BORDER_FOCUS};
+    border-color: {C.VIOLET};
 }}
 QLineEdit:disabled {{
     color: {C.TEXT_DISABLED};
-    border-color: {C.BORDER};
 }}
 
-/* ── Sliders ────────────────────────────────────────────────────────────── */
-QSlider::groove:horizontal {{
-    height: 4px;
-    background-color: {C.BORDER};
-    border-radius: 2px;
-}}
-QSlider::handle:horizontal {{
-    background-color: {C.ACCENT_PRIMARY};
+/* ── Scroll Area ────────────────────────────────────────────────────────── */
+QScrollArea {{
+    background-color: transparent;
     border: none;
-    width: 12px;
-    height: 12px;
-    border-radius: 6px;
-    margin: -4px 0;
 }}
-QSlider::handle:horizontal:hover {{
-    background-color: {C.TEXT_ACCENT};
-}}
-QSlider::sub-page:horizontal {{
-    background-color: {C.ACCENT_PRIMARY};
-    border-radius: 2px;
+QScrollArea > QWidget > QWidget {{
+    background-color: transparent;
 }}
 
 /* ── Frame / Separator ──────────────────────────────────────────────────── */
@@ -320,21 +353,12 @@ QFrame[frameShape="HLine"] {{
     border: none;
     max-height: 1px;
 }}
-QFrame[frameShape="5"],
-QFrame[frameShape="VLine"] {{
-    color: {C.BORDER};
-    background-color: {C.BORDER};
-    border: none;
-    max-width: 1px;
-}}
 
 """
 
 
 def apply_theme(app: QApplication) -> None:
-    """Apply the Observatory Glass theme to *app*.
-
-    Sets the global stylesheet and configures the default application font.
+    """Apply the Deep Field theme to *app*.
 
     Parameters
     ----------
@@ -343,6 +367,6 @@ def apply_theme(app: QApplication) -> None:
     """
     app.setStyleSheet(build_stylesheet())
     font = QFont("Inter")
-    font.setStyleHint(QFont.SansSerif)
+    font.setStyleHint(QFont.StyleHint.SansSerif)
     font.setPixelSize(Typography.SIZE_BASE)
     app.setFont(font)
