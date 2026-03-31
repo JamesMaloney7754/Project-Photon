@@ -43,8 +43,8 @@ class PipelineStepperWidget(QWidget):
             self.sizePolicy().horizontalPolicy(),
             self.sizePolicy().verticalPolicy(),
         )
-        self.setAttribute(Qt.WA_Hover, True)
-        self.setCursor(Qt.PointingHandCursor)
+        self.setAttribute(Qt.WidgetAttribute.WA_Hover, True)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
 
         self._active: int = 0
         self._completed: set[int] = set()
@@ -89,7 +89,7 @@ class PipelineStepperWidget(QWidget):
     def paintEvent(self, _event: object) -> None:
         """Render all steps, connectors, and labels."""
         painter = QPainter(self)
-        painter.setRenderHint(QPainter.Antialiasing)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
 
         w = self.width()
         n = len(_STEPS)
@@ -120,14 +120,14 @@ class PipelineStepperWidget(QWidget):
             else:
                 fill = QColor(Colors.BORDER)
 
-            painter.setPen(Qt.NoPen)
+            painter.setPen(Qt.PenStyle.NoPen)
             painter.setBrush(fill)
             painter.drawEllipse(cx - _CIRCLE_R, cy - _CIRCLE_R, _CIRCLE_D, _CIRCLE_D)
 
             # ── Circle content: checkmark or number ──
             font = QFont("Inter")
             font.setPixelSize(Typography.SIZE_SM)
-            font.setWeight(QFont.Bold)
+            font.setWeight(QFont.Weight.Bold)
             painter.setFont(font)
 
             if i in self._completed:
@@ -143,7 +143,7 @@ class PipelineStepperWidget(QWidget):
             painter.setPen(QPen(text_color))
             painter.drawText(
                 QRect(cx - _CIRCLE_R, cy - _CIRCLE_R, _CIRCLE_D, _CIRCLE_D),
-                Qt.AlignCenter,
+                Qt.AlignmentFlag.AlignCenter,
                 content,
             )
 

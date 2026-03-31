@@ -56,7 +56,7 @@ class BottomBarWidget(QWidget):
         self._progress.setFixedHeight(4)
         self._progress.setTextVisible(False)
         self._progress.setVisible(False)
-        layout.addWidget(self._progress, 0, Qt.AlignVCenter)
+        layout.addWidget(self._progress, 0, Qt.AlignmentFlag.AlignVCenter)
 
         # Current frame label
         self._frame_lbl = QLabel("0")
@@ -66,16 +66,16 @@ class BottomBarWidget(QWidget):
             f"font-size: {Typography.SIZE_XS}px;"
         )
         self._frame_lbl.setFixedWidth(30)
-        self._frame_lbl.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        self._frame_lbl.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
         layout.addWidget(self._frame_lbl)
 
         # Scrubber slider
-        self._scrubber = QSlider(Qt.Horizontal)
+        self._scrubber = QSlider(Qt.Orientation.Horizontal)
         self._scrubber.setFixedWidth(240)
         self._scrubber.setRange(0, 0)
         self._scrubber.setValue(0)
         self._scrubber.valueChanged.connect(self._on_scrubber_changed)
-        layout.addWidget(self._scrubber, 0, Qt.AlignVCenter)
+        layout.addWidget(self._scrubber, 0, Qt.AlignmentFlag.AlignVCenter)
 
         # Total frames label
         self._total_lbl = QLabel("/ 0")

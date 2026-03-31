@@ -89,7 +89,7 @@ class MainWindow(QMainWindow):
         root_layout.addWidget(top_bar)
 
         # ── Main splitter ─────────────────────────────────────────────
-        self._splitter = QSplitter(Qt.Horizontal)
+        self._splitter = QSplitter(Qt.Orientation.Horizontal)
         self._splitter.setChildrenCollapsible(False)
         self._splitter.addWidget(self._sidebar)
         self._splitter.addWidget(self._canvas)
@@ -142,7 +142,7 @@ class MainWindow(QMainWindow):
             }}
             """
         )
-        self._logo_btn.setPopupMode(QToolButton.InstantPopup)
+        self._logo_btn.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
         self._logo_btn.setToolTip("Click for application menu")
 
         logo_menu = QMenu(self._logo_btn)

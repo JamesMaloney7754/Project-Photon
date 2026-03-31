@@ -41,7 +41,7 @@ def _key_label(text: str) -> QLabel:
     lbl.setStyleSheet(
         f"color: {Colors.TEXT_SECONDARY}; font-size: {Typography.SIZE_SM}px;"
     )
-    lbl.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+    lbl.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
     return lbl
 
 
@@ -52,13 +52,13 @@ def _value_label(placeholder: str = "—") -> QLabel:
         f"font-family: {Typography.FONT_MONO};"
         f"font-size: {Typography.SIZE_SM}px;"
     )
-    lbl.setTextInteractionFlags(Qt.TextSelectableByMouse)
+    lbl.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
     return lbl
 
 
 def _separator() -> QFrame:
     sep = QFrame()
-    sep.setFrameShape(QFrame.HLine)
+    sep.setFrameShape(QFrame.Shape.HLine)
     sep.setStyleSheet(
         f"background-color: {Colors.BORDER}; max-height: 1px; margin: 8px 0;"
     )
@@ -70,7 +70,7 @@ def _page_wrapper(inner: QWidget) -> QScrollArea:
     scroll = QScrollArea()
     scroll.setWidget(inner)
     scroll.setWidgetResizable(True)
-    scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+    scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
     scroll.setStyleSheet(
         f"QScrollArea {{ background-color: {Colors.SURFACE}; border: none; }}"
     )
@@ -93,7 +93,7 @@ class InspectorPanel(QWidget):
         super().__init__(parent)
         self.setFixedWidth(260)
         self.setStyleSheet(f"background-color: {Colors.SURFACE};")
-        self.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Expanding)
+        self.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Expanding)
 
         root = QVBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)

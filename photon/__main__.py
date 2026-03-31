@@ -1,6 +1,6 @@
 import sys
 
-from PySide6.QtGui import QColor, QPixmap
+from PySide6.QtGui import QColor, QIcon, QPixmap
 from PySide6.QtWidgets import QApplication
 
 from photon.ui.main_window import MainWindow
@@ -15,10 +15,12 @@ def main() -> None:
 
     apply_theme(app)
 
-    # Temporary placeholder icon (32×32 filled with the accent color)
-    icon_pixmap = QPixmap(32, 32)
-    icon_pixmap.fill(QColor(Colors.ACCENT_PRIMARY))
-    app.setWindowIcon(app.style().standardIcon(app.style().SP_ComputerIcon))
+    # Placeholder icon: 32×32 filled with the accent color
+    icon = QIcon()
+    pixmap = QPixmap(32, 32)
+    pixmap.fill(QColor(Colors.ACCENT_PRIMARY))
+    icon.addPixmap(pixmap)
+    app.setWindowIcon(icon)
 
     window = MainWindow()
     window.show()

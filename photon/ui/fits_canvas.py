@@ -40,7 +40,7 @@ class _EmptyStateWidget(QWidget):
 
     def paintEvent(self, _event: object) -> None:  # type: ignore[override]
         painter = QPainter(self)
-        painter.setRenderHint(QPainter.Antialiasing)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
 
         w, h = self.width(), self.height()
 
@@ -49,9 +49,9 @@ class _EmptyStateWidget(QWidget):
         margin_y = int(h * 0.20)
         rect = QRect(margin_x, margin_y, w - 2 * margin_x, h - 2 * margin_y)
 
-        pen = QPen(QColor(Colors.BORDER), 2, Qt.DashLine)
+        pen = QPen(QColor(Colors.BORDER), 2, Qt.PenStyle.DashLine)
         painter.setPen(pen)
-        painter.setBrush(Qt.NoBrush)
+        painter.setBrush(Qt.BrushStyle.NoBrush)
         painter.drawRoundedRect(rect, 12, 12)
 
         # Centre of the drop zone
@@ -59,10 +59,10 @@ class _EmptyStateWidget(QWidget):
         cy = h // 2 - 20
 
         # ── Telescope icon (QPainter line art) ────────────────────────
-        icon_pen = QPen(QColor(Colors.TEXT_DISABLED), 2, Qt.SolidLine)
-        icon_pen.setCapStyle(Qt.RoundCap)
+        icon_pen = QPen(QColor(Colors.TEXT_DISABLED), 2, Qt.PenStyle.SolidLine)
+        icon_pen.setCapStyle(Qt.PenCapStyle.RoundCap)
         painter.setPen(icon_pen)
-        painter.setBrush(Qt.NoBrush)
+        painter.setBrush(Qt.BrushStyle.NoBrush)
 
         # Aperture circle
         r_ap = 14
@@ -87,7 +87,7 @@ class _EmptyStateWidget(QWidget):
         text_y = cy + 58
         painter.drawText(
             QRect(0, text_y, w, Typography.SIZE_MD + 6),
-            Qt.AlignHCenter | Qt.AlignVCenter,
+            Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignVCenter,
             "Drop FITS files here",
         )
 
@@ -98,7 +98,7 @@ class _EmptyStateWidget(QWidget):
         painter.setPen(QColor(Colors.TEXT_DISABLED))
         painter.drawText(
             QRect(0, text_y + Typography.SIZE_MD + 8, w, Typography.SIZE_XS + 4),
-            Qt.AlignHCenter | Qt.AlignVCenter,
+            Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignVCenter,
             "or press Ctrl+O to open",
         )
 
@@ -127,7 +127,7 @@ class FitsCanvas(QWidget):
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.setAcceptDrops(True)
-        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
 
         # ── Matplotlib figure (canvas background matches CANVAS_BG) ──
         bg = Colors.CANVAS_BG

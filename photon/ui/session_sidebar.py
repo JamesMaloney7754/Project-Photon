@@ -68,8 +68,8 @@ class _FrameItemDelegate(QStyledItemDelegate):
         painter.setPen(primary_color)
         line1_rect = rect.adjusted(pad_x, pad_y, -pad_x, 0)
         line1_rect.setHeight(Typography.SIZE_SM + 2)
-        name = index.data(Qt.DisplayRole) or ""  # type: ignore[union-attr]
-        painter.drawText(line1_rect, Qt.AlignLeft | Qt.AlignVCenter, name)
+        name = index.data(Qt.ItemDataRole.DisplayRole) or ""  # type: ignore[union-attr]
+        painter.drawText(line1_rect, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter, name)
 
         # Line 2 — frame info
         font2 = QFont("JetBrains Mono, Consolas")
@@ -77,8 +77,8 @@ class _FrameItemDelegate(QStyledItemDelegate):
         painter.setFont(font2)
         painter.setPen(secondary_color)
         line2_rect = rect.adjusted(pad_x, pad_y + Typography.SIZE_SM + 4, -pad_x, -pad_y)
-        secondary = index.data(Qt.UserRole) or ""  # type: ignore[union-attr]
-        painter.drawText(line2_rect, Qt.AlignLeft | Qt.AlignVCenter, secondary)
+        secondary = index.data(Qt.ItemDataRole.UserRole) or ""  # type: ignore[union-attr]
+        painter.drawText(line2_rect, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter, secondary)
 
         painter.restore()
 
@@ -109,7 +109,7 @@ class SessionSidebar(QWidget):
         super().__init__(parent)
         self.setFixedWidth(260)
         self.setStyleSheet(f"background-color: {Colors.SURFACE};")
-        self.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Expanding)
+        self.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Expanding)
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 12, 0, 12)
@@ -130,14 +130,14 @@ class SessionSidebar(QWidget):
         self.file_list = QListWidget()
         self.file_list.setItemDelegate(_FrameItemDelegate(self.file_list))
         self.file_list.setUniformItemSizes(True)
-        self.file_list.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        self.file_list.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        self.file_list.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.file_list.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self.file_list.currentRowChanged.connect(self._on_row_changed)
         layout.addWidget(self.file_list)
 
         # ── Separator ────────────────────────────────────────────────
         sep = QFrame()
-        sep.setFrameShape(QFrame.HLine)
+        sep.setFrameShape(QFrame.Shape.HLine)
         sep.setStyleSheet(f"background-color: {Colors.BORDER}; max-height: 1px; margin: 8px 0;")
         layout.addWidget(sep)
 
@@ -220,7 +220,7 @@ class SessionSidebar(QWidget):
 
             secondary = f"Frame {i}" + (f"  ·  {time_str}" if time_str else "")
             item = QListWidgetItem(path.name)
-            item.setData(Qt.UserRole, secondary)
+            item.setData(Qt.ItemDataRole.UserRole, secondary)
             self.file_list.addItem(item)
 
         # Populate metadata
