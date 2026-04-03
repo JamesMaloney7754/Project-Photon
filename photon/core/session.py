@@ -49,6 +49,23 @@ class PhotonSession:
     photometry_results: dict = field(default_factory=dict)
     light_curve: Optional[object] = None
 
+    # Star detection results (set after first frame loads)
+    detected_stars: Optional[object] = None          # astropy.table.Table
+
+    # User-selected target star
+    target_xy: Optional[tuple[float, float]] = None
+    target_star_row: Optional[int] = None            # index into detected_stars
+
+    # Comparison stars
+    comparison_xys: list[tuple[float, float]] = field(default_factory=list)
+    comparison_star_rows: list[int] = field(default_factory=list)
+
+    # Full photometry results from run_aperture_photometry
+    photometry_result: Optional[dict] = None
+
+    # Per-frame exclusion flags (True = bad frame)
+    frame_flags: Optional[np.ndarray] = None
+
     # ------------------------------------------------------------------
     # Convenience helpers
     # ------------------------------------------------------------------
@@ -62,6 +79,13 @@ class PhotonSession:
         self.catalog_matches = None
         self.photometry_results.clear()
         self.light_curve = None
+        self.detected_stars = None
+        self.target_xy = None
+        self.target_star_row = None
+        self.comparison_xys.clear()
+        self.comparison_star_rows.clear()
+        self.photometry_result = None
+        self.frame_flags = None
 
     @property
     def frame_count(self) -> int:
