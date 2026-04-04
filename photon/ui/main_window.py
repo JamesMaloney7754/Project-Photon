@@ -162,6 +162,9 @@ class MainWindow(QMainWindow):
         self._connect_signals()
         self._register_shortcuts()
 
+        # Defer solver-installation check until after the window is shown
+        QTimer.singleShot(500, self._check_solver_installation)
+
         logger.info("MainWindow initialised.")
 
     # ------------------------------------------------------------------
@@ -399,6 +402,35 @@ class MainWindow(QMainWindow):
     # ------------------------------------------------------------------
     # Settings
     # ------------------------------------------------------------------
+
+    def _check_solver_installation(self) -> None:
+        """Warn once per session if no local solver is available or configured."""
+        sm = get_settings_manager()
+
+        # Only relevant when the backend is set to local
+        if sm.get("platesolve/backend") != "local":
+            return
+
+        # If the user has already configured a binary path, nothing to say
+        if sm.get("platesolve/local_binary_path"):
+            return
+
+        from photon.core.plate_solver import LocalAstrometrySolver
+        if LocalAstrometrySolver.detect_installation() is not None:
+            return
+
+        from PySide6.QtWidgets import QMessageBox
+        msg = QMessageBox(self)
+        msg.setWindowTitle("Plate Solving")
+        msg.setIcon(QMessageBox.Icon.Information)
+        msg.setText(
+            "Local plate solving requires the astrometry.net solver to be installed.\n\n"
+            "You can configure this in Settings \u2192 Plate Solving, "
+            "or use the Astrometry.net cloud API instead."
+        )
+        msg.setStandardButtons(QMessageBox.StandardButton.Ok)
+        msg.setWindowModality(Qt.WindowModality.NonModal)
+        msg.show()
 
     def _open_settings(self) -> None:
         if self._settings_window is None:
