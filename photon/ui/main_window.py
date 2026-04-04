@@ -1,4 +1,4 @@
-"""Main application window — Observatory Glass layout."""
+"""Main application window — Deep Field layout with glass panels."""
 
 from __future__ import annotations
 
@@ -6,16 +6,22 @@ import logging
 from pathlib import Path
 
 from PySide6.QtCore import QPropertyAnimation, QThreadPool, QTimer, Qt
-from PySide6.QtGui import QColor, QFont, QKeySequence, QPainter, QPen, QPolygon
+from PySide6.QtGui import (
+    QColor,
+    QFont,
+    QKeySequence,
+    QPainter,
+    QPen,
+    QPolygon,
+    QShortcut,
+)
 from PySide6.QtWidgets import (
-    QGraphicsOpacityEffect,
     QFileDialog,
+    QGraphicsOpacityEffect,
     QHBoxLayout,
-    QLabel,
     QMainWindow,
     QMenu,
     QMessageBox,
-    QShortcut,
     QSplitter,
     QStackedWidget,
     QToolButton,
@@ -42,25 +48,28 @@ from photon.workers.star_detection_worker import StarDetectionWorker
 logger = logging.getLogger(__name__)
 
 
-# ── Logo widget ─────────────────────────────────────────────────────────────────
+# ── Logo widget (painted hexagon + wordmark) ────────────────────────────────────
 
 
 class _LogoWidget(QWidget):
     """Paints a violet hexagon followed by the "PHOTON" wordmark."""
 
-    _SIZE = 14
+    _SIZE = 14  # hexagon apothem in px
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
-        self.setFixedSize(self._SIZE * 2 + 8 + 80, 40)
+        text_w = 80
+        self.setFixedSize(self._SIZE * 2 + 8 + text_w, 40)
         self.setStyleSheet("background-color: transparent;")
 
     def paintEvent(self, _event: object) -> None:  # type: ignore[override]
-        import math
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+
+        import math
         cx, cy = self._SIZE + 2, self.height() // 2
         r = self._SIZE
+        # Six-sided polygon
         pts = QPolygon()
         for k in range(6):
             angle = math.radians(60 * k - 30)
@@ -71,6 +80,8 @@ class _LogoWidget(QWidget):
         painter.setPen(Qt.PenStyle.NoPen)
         painter.setBrush(QColor(Colors.VIOLET))
         painter.drawPolygon(pts)
+
+        # "PHOTON" wordmark
         font = QFont("Inter")
         font.setPixelSize(Typography.SIZE_LG)
         font.setWeight(QFont.Weight(Typography.WEIGHT_BOLD))
@@ -78,6 +89,7 @@ class _LogoWidget(QWidget):
         painter.setPen(QColor(Colors.TEXT_PRIMARY))
         text_x = cx + r + 8
         painter.drawText(text_x, 0, self.width() - text_x, self.height(), 0, "PHOTON")
+
         painter.end()
 
 
@@ -103,7 +115,9 @@ class _GearButton(QToolButton):
         cx, cy = self.width() // 2, self.height() // 2
         painter.setPen(QPen(QColor(Colors.TEXT_SECONDARY), 1.5))
         painter.setBrush(Qt.BrushStyle.NoBrush)
+        # Inner circle
         painter.drawEllipse(cx - 4, cy - 4, 8, 8)
+        # Outer ring with 8 notches
         for k in range(8):
             angle = math.radians(45 * k)
             x0 = cx + int(7 * math.cos(angle))
@@ -134,13 +148,13 @@ class MainWindow(QMainWindow):
         self._current_frame: int = 0
         self._current_step: int = 0
 
+        # Frame playback timer (10 fps)
         self._play_timer = QTimer(self)
         self._play_timer.setInterval(100)
         self._play_timer.timeout.connect(self._advance_frame)
 
         self.setWindowTitle("Photon")
-        self.setMinimumSize(1100, 680)
-        # Remove the default QMenuBar — navigation lives in the logo menu
+        self.setMinimumSize(1100, 700)
         self.setMenuBar(None)  # type: ignore[arg-type]
 
         self._build_components()
@@ -167,15 +181,17 @@ class MainWindow(QMainWindow):
         self._settings_window: object | None = None
 
     def _build_layout(self) -> None:
+        """Assemble the full window layout with BackgroundWidget as root."""
         bg = BackgroundWidget()
         root_layout = QVBoxLayout(bg)
         root_layout.setContentsMargins(0, 0, 0, 0)
         root_layout.setSpacing(0)
 
+        # ── Top bar ───────────────────────────────────────────────────────
         top_bar = self._build_top_bar()
         root_layout.addWidget(top_bar)
 
-        # ── Content area with 8px margins ─────────────────────────────────
+        # ── Main splitter (8px margins so gradient shows around panels) ───
         splitter_wrapper = QWidget()
         splitter_wrapper.setStyleSheet("background-color: transparent;")
         sw_layout = QVBoxLayout(splitter_wrapper)
@@ -187,7 +203,7 @@ class MainWindow(QMainWindow):
         self._splitter.setChildrenCollapsible(False)
         self._splitter.setStyleSheet("QSplitter { background-color: transparent; }")
 
-        # Center: vertical splitter (canvas / light curve)
+        # Center: vertical splitter (canvas / light curve), ratio 60/40
         self._v_splitter = QSplitter(Qt.Orientation.Vertical)
         self._v_splitter.setChildrenCollapsible(False)
         self._v_splitter.setStyleSheet("QSplitter { background-color: transparent; }")
@@ -197,10 +213,10 @@ class MainWindow(QMainWindow):
         self._v_splitter.setStretchFactor(1, 2)
         self._lc_panel.setVisible(False)
 
-        # Right panel: stack — InspectorPanel (steps 0-2) / PhotometryPanel (step 3)
+        # Right panel: InspectorPanel (steps 0-2) / PhotometryPanel (step 3)
         self._right_stack = QStackedWidget()
-        self._right_stack.addWidget(self._inspector)    # page 0
-        self._right_stack.addWidget(self._phot_panel)   # page 1
+        self._right_stack.addWidget(self._inspector)   # page 0
+        self._right_stack.addWidget(self._phot_panel)  # page 1
 
         self._splitter.addWidget(self._sidebar)
         self._splitter.addWidget(self._v_splitter)
@@ -210,31 +226,38 @@ class MainWindow(QMainWindow):
         self._splitter.setStretchFactor(0, 0)
         self._splitter.setStretchFactor(1, 1)
         self._splitter.setStretchFactor(2, 0)
-
         sw_layout.addWidget(self._splitter)
+
         root_layout.addWidget(splitter_wrapper, 1)
+
+        # ── Bottom bar ────────────────────────────────────────────────────
         root_layout.addWidget(self._bottom)
 
         self.setCentralWidget(bg)
 
     def _build_top_bar(self) -> QWidget:
+        """Return the 56px top bar with logo, stepper, and gear button."""
         bar = QWidget()
-        bar.setFixedHeight(48)
+        bar.setFixedHeight(56)
         bar.setStyleSheet(
-            f"background-color: {Colors.SURFACE};"
-            f"border-bottom: 1px solid {Colors.BORDER};"
+            "background-color: rgba(6, 8, 16, 160);"
+            "border-bottom: 1px solid rgba(255, 255, 255, 15);"
         )
+
         layout = QHBoxLayout(bar)
         layout.setContentsMargins(16, 0, 16, 0)
         layout.setSpacing(0)
 
+        # Logo
         logo = _LogoWidget()
         layout.addWidget(logo, 0, Qt.AlignmentFlag.AlignVCenter)
 
+        # Stepper — centered
         layout.addStretch(1)
         layout.addWidget(self._stepper, 0, Qt.AlignmentFlag.AlignVCenter)
         layout.addStretch(1)
 
+        # Settings gear button with popup menu
         self._gear_btn = _GearButton()
         self._gear_btn.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
         self._gear_btn.setToolTip("Application menu")
@@ -257,10 +280,10 @@ class MainWindow(QMainWindow):
         self._gear_btn.setMenu(gear_menu)
 
         layout.addWidget(self._gear_btn, 0, Qt.AlignmentFlag.AlignVCenter)
+
         return bar
 
     def _connect_signals(self) -> None:
-        """Wire all inter-widget signals."""
         self._sidebar.open_requested.connect(self._open_sequence)
         self._canvas.files_dropped.connect(self._load_paths)
         self._sidebar.frame_selected.connect(self._show_frame)
@@ -283,16 +306,23 @@ class MainWindow(QMainWindow):
         self._lc_panel.frame_flagged.connect(self._on_frame_flagged)
 
     def _register_shortcuts(self) -> None:
-        """Register global keyboard shortcuts."""
         QShortcut(QKeySequence("Ctrl+O"), self).activated.connect(self._open_sequence)
         QShortcut(QKeySequence("Ctrl+,"), self).activated.connect(self._open_settings)
         QShortcut(QKeySequence("Left"),   self).activated.connect(self._prev_frame)
         QShortcut(QKeySequence("Right"),  self).activated.connect(self._next_frame)
         QShortcut(QKeySequence("Space"),  self).activated.connect(self._toggle_play)
-        QShortcut(QKeySequence("1"), self).activated.connect(lambda: self._set_pipeline_step(0))
-        QShortcut(QKeySequence("2"), self).activated.connect(lambda: self._set_pipeline_step(1))
-        QShortcut(QKeySequence("3"), self).activated.connect(lambda: self._set_pipeline_step(2))
-        QShortcut(QKeySequence("4"), self).activated.connect(lambda: self._set_pipeline_step(3))
+        QShortcut(QKeySequence("1"), self).activated.connect(
+            lambda: self._set_pipeline_step(0)
+        )
+        QShortcut(QKeySequence("2"), self).activated.connect(
+            lambda: self._set_pipeline_step(1)
+        )
+        QShortcut(QKeySequence("3"), self).activated.connect(
+            lambda: self._set_pipeline_step(2)
+        )
+        QShortcut(QKeySequence("4"), self).activated.connect(
+            lambda: self._set_pipeline_step(3)
+        )
         QShortcut(QKeySequence("Ctrl+Q"), self).activated.connect(self.close)
 
     # ------------------------------------------------------------------
@@ -304,23 +334,28 @@ class MainWindow(QMainWindow):
         self._run_launch_animations()
 
     def _run_launch_animations(self) -> None:
+        """Fade the three panels in sequentially on first show."""
         panels = [self._sidebar, self._v_splitter, self._right_stack]
         effects: list[QGraphicsOpacityEffect] = []
         anims:   list[QPropertyAnimation] = []
+
         for panel in panels:
             eff = QGraphicsOpacityEffect(panel)
             eff.setOpacity(0.0)
             panel.setGraphicsEffect(eff)
             effects.append(eff)
+
             anim = QPropertyAnimation(eff, b"opacity", self)
             anim.setStartValue(0.0)
             anim.setEndValue(1.0)
             anim.setDuration(300)
             anims.append(anim)
+
         offsets_ms = [0, 100, 200]
         for anim, delay in zip(anims, offsets_ms):
             QTimer.singleShot(delay, anim.start)
 
+        # Remove effects after all animations complete to avoid paint artifacts
         def _cleanup() -> None:
             for panel in panels:
                 panel.setGraphicsEffect(None)
@@ -342,6 +377,7 @@ class MainWindow(QMainWindow):
     # ------------------------------------------------------------------
 
     def _open_sequence(self) -> None:
+        """Open a file dialog and kick off the loading worker."""
         paths, _ = QFileDialog.getOpenFileNames(
             self,
             "Open FITS Sequence",
@@ -355,7 +391,7 @@ class MainWindow(QMainWindow):
         self._pending_paths = list(paths)
         self._bottom.set_status("Loading…")
         self._bottom.show_progress(True)
-        self._bottom.set_progress(0, 0)  # indeterminate
+        self._bottom.set_progress(0, 0)
 
         worker = FitsLoaderWorker(paths)
         worker.signals.result.connect(self._on_loaded)
@@ -364,7 +400,7 @@ class MainWindow(QMainWindow):
         QThreadPool.globalInstance().start(worker)
 
     # ------------------------------------------------------------------
-    # Load slot
+    # Slots
     # ------------------------------------------------------------------
 
     def _on_loaded(self, payload: object) -> None:
@@ -399,7 +435,9 @@ class MainWindow(QMainWindow):
             threshold_sigma=sm.get("photometry/detection_threshold_sigma"),
         )
         worker.signals.result.connect(self._on_stars_detected)
-        worker.signals.error.connect(lambda tb: logger.warning("Star detection failed:\n%s", tb))
+        worker.signals.error.connect(
+            lambda tb: logger.warning("Star detection failed:\n%s", tb)
+        )
         QThreadPool.globalInstance().start(worker)
 
     def _on_stars_detected(self, stars: object) -> None:
@@ -436,7 +474,6 @@ class MainWindow(QMainWindow):
         if index < len(self.session.fits_paths):
             self._inspector.set_current_frame_path(self.session.fits_paths[index])
 
-        # Sync sidebar and scrubber without re-triggering their signals
         self._sidebar.set_selected_frame(index)
         self._bottom.set_frame(index)
 
@@ -485,7 +522,7 @@ class MainWindow(QMainWindow):
 
     def _on_star_clicked(self, x: float, y: float) -> None:
         """Handle a canvas click in select_target or select_comparison mode."""
-        mode = self._canvas._interaction_mode
+        mode  = self._canvas._interaction_mode
         stars = self.session.detected_stars
 
         if mode == "select_target":
@@ -571,7 +608,6 @@ class MainWindow(QMainWindow):
 
         ap_r, ann_in, ann_out = self._phot_panel.get_aperture_params()
 
-        # Gather observation times if available
         obs_times = None
         try:
             from photon.core.fits_loader import get_observation_times
