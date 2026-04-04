@@ -52,6 +52,7 @@ class LightCurvePanel(GlassPanel):
         self._sc_good: Any = None
         self._sc_flag: Any = None
         self._median_line: Any = None
+        self._fade_anim: Any = None   # FuncAnimation kept alive until complete
 
         root = QVBoxLayout(self)
         root.setContentsMargins(12, 10, 12, 10)
@@ -151,7 +152,7 @@ class LightCurvePanel(GlassPanel):
     # ------------------------------------------------------------------
 
     def update_light_curve(self, light_curve: Any) -> None:
-        """Render a new light curve.
+        """Render a new light curve with a 200 ms fade-in animation.
 
         Parameters
         ----------
@@ -159,11 +160,45 @@ class LightCurvePanel(GlassPanel):
             Table with columns ``time``, ``mag``, ``mag_err``, ``flagged``,
             ``frame_index``.
         """
+        from matplotlib.animation import FuncAnimation
+
         self._light_curve = light_curve
+
+        # Stop any previous fade animation so it doesn't fight the new one.
+        if self._fade_anim is not None:
+            try:
+                self._fade_anim.event_source.stop()
+            except Exception:
+                pass
+            self._fade_anim = None
+
         self._replot()
 
+        # Start scatter artists at alpha=0 then animate to final alpha.
+        sc_good = self._sc_good
+        sc_flag = self._sc_flag
+        if sc_good is not None:
+            sc_good.set_alpha(0.0)
+        if sc_flag is not None:
+            sc_flag.set_alpha(0.0)
+
+        def _step(frame_num: int) -> None:
+            progress = (frame_num + 1) / 10
+            if sc_good is not None:
+                sc_good.set_alpha(progress * 0.85)
+            if sc_flag is not None:
+                sc_flag.set_alpha(progress * 0.5)
+
+        self._fade_anim = FuncAnimation(
+            self._fig,
+            _step,
+            frames=10,
+            interval=20,   # 20 ms × 10 frames = 200 ms total
+            blit=False,
+            repeat=False,
+        )
+
         # Update RMS label
-        import numpy as np
         flags = np.asarray(light_curve["flagged"], dtype=bool)
         mags = np.asarray(light_curve["mag"], dtype=float)
         good = ~flags
