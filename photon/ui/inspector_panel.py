@@ -3,16 +3,20 @@
 from __future__ import annotations
 
 import logging
+import math
 from typing import Any
 
 from PySide6.QtCore import (
     Property,
     QPropertyAnimation,
     Qt,
+    QTimer,
 )
-from PySide6.QtGui import QColor, QFont, QPainter
+from PySide6.QtGui import QColor, QFont, QPainter, QPen
 from PySide6.QtWidgets import (
     QGraphicsOpacityEffect,
+    QLabel,
+    QPlainTextEdit,
     QPushButton,
     QScrollArea,
     QSizePolicy,
@@ -153,6 +157,88 @@ def _page_wrapper(inner: QWidget) -> QScrollArea:
     return scroll
 
 
+# ── _RadarWidget ───────────────────────────────────────────────────────────────
+
+
+class _RadarWidget(QWidget):
+    """Animated radar-ping widget shown while plate solving.
+
+    Draws a rotating sweep arc over concentric rings using the violet accent
+    colour.  Drive with :meth:`start` / :meth:`stop`.
+    """
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.setFixedSize(64, 64)
+        self._angle: float = 0.0
+        self._timer = QTimer(self)
+        self._timer.setInterval(30)  # ~33 fps
+        self._timer.timeout.connect(self._tick)
+
+    def start(self) -> None:
+        """Start the radar animation."""
+        self._angle = 0.0
+        self._timer.start()
+
+    def stop(self) -> None:
+        """Stop the radar animation."""
+        self._timer.stop()
+        self.update()
+
+    def _tick(self) -> None:
+        self._angle = (self._angle + 6) % 360  # 6° per frame ≈ 1 revolution/s
+        self.update()
+
+    def paintEvent(self, _event: object) -> None:  # type: ignore[override]
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+
+        w, h = self.width(), self.height()
+        cx, cy = w // 2, h // 2
+        r = min(cx, cy) - 2
+
+        # Background
+        painter.fillRect(self.rect(), QColor(Colors.CANVAS_BG))
+
+        violet = QColor(Colors.VIOLET)
+
+        # ── Concentric rings ──────────────────────────────────────────────
+        for frac in (0.33, 0.67, 1.0):
+            ring_r = int(r * frac)
+            pen = QPen(QColor(124, 58, 237, 50), 1)  # Colors.VIOLET dim
+            painter.setPen(pen)
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+            painter.drawEllipse(cx - ring_r, cy - ring_r, ring_r * 2, ring_r * 2)
+
+        # ── Sweep arc (90° wide, rotating) ────────────────────────────────
+        from PySide6.QtGui import QConicalGradient
+        grad = QConicalGradient(cx, cy, self._angle)
+        grad.setColorAt(0.0,  QColor(124, 58, 237, 0))    # transparent tail
+        grad.setColorAt(0.25, QColor(124, 58, 237, 180))  # Colors.VIOLET bright
+        grad.setColorAt(1.0,  QColor(124, 58, 237, 0))
+
+        from PySide6.QtGui import QBrush
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(QBrush(grad))
+        painter.drawEllipse(cx - r, cy - r, r * 2, r * 2)
+
+        # ── Crosshairs ────────────────────────────────────────────────────
+        pen_cross = QPen(QColor(124, 58, 237, 80), 1)  # Colors.VIOLET
+        painter.setPen(pen_cross)
+        painter.drawLine(cx - r, cy, cx + r, cy)
+        painter.drawLine(cx, cy - r, cx, cy + r)
+
+        # ── Sweep tip dot ─────────────────────────────────────────────────
+        angle_rad = math.radians(self._angle)
+        tip_x = cx + int(r * math.cos(angle_rad))
+        tip_y = cy - int(r * math.sin(angle_rad))
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(violet)
+        painter.drawEllipse(tip_x - 3, tip_y - 3, 6, 6)
+
+        painter.end()
+
+
 # ── InspectorPanel ─────────────────────────────────────────────────────────────
 
 
@@ -173,6 +259,8 @@ class InspectorPanel(GlassPanel):
         super().__init__(parent)
         self.setFixedWidth(260)
         self.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Expanding)
+
+        self._session_provider: object = None
 
         root = QVBoxLayout(self)
         root.setContentsMargins(12, 12, 12, 12)
@@ -259,11 +347,186 @@ class InspectorPanel(GlassPanel):
             layout.addWidget(row)
 
         layout.addSpacing(12)
+
+        # ── Radar animation widget ────────────────────────────────────────
+        self._radar = _RadarWidget()
+        self._radar.setVisible(False)
+        layout.addWidget(self._radar, 0, Qt.AlignmentFlag.AlignHCenter)
+
+        # ── Solving status label ──────────────────────────────────────────
+        self._solve_status_lbl = QLabel("")
+        self._solve_status_lbl.setStyleSheet(
+            f"color: {Colors.TEXT_SECONDARY};"
+            f"font-size: {Typography.SIZE_XS}px;"
+            f"font-style: italic;"
+            f"background-color: transparent;"
+        )
+        self._solve_status_lbl.setVisible(False)
+        layout.addWidget(self._solve_status_lbl)
+
+        # ── Progress log ──────────────────────────────────────────────────
+        self._solve_log = QPlainTextEdit()
+        self._solve_log.setReadOnly(True)
+        self._solve_log.setFixedHeight(80)
+        self._solve_log.setStyleSheet(
+            f"background-color: {Colors.SURFACE};"
+            f"color: {Colors.TEXT_SECONDARY};"
+            f"font-family: {Typography.FONT_MONO};"
+            f"font-size: {Typography.SIZE_XS}px;"
+            f"border: none;"
+            f"padding: 4px;"
+        )
+        self._solve_log.setVisible(False)
+        layout.addWidget(self._solve_log)
+
+        # ── Error label ───────────────────────────────────────────────────
+        self._solve_error_lbl = QLabel("")
+        self._solve_error_lbl.setStyleSheet(
+            f"color: {Colors.DANGER};"
+            f"font-size: {Typography.SIZE_XS}px;"
+            f"background-color: transparent;"
+        )
+        self._solve_error_lbl.setWordWrap(True)
+        self._solve_error_lbl.setVisible(False)
+        layout.addWidget(self._solve_error_lbl)
+
+        layout.addSpacing(8)
+
+        # ── Buttons ───────────────────────────────────────────────────────
         self._solve_btn = QPushButton("Solve Field")
         self._solve_btn.setObjectName("solve_btn")
+        self._solve_btn.clicked.connect(self._on_solve_clicked)
         layout.addWidget(self._solve_btn)
+
+        self._solve_retry_btn = QPushButton("Retry")
+        self._solve_retry_btn.setVisible(False)
+        self._solve_retry_btn.clicked.connect(self._on_solve_clicked)
+        layout.addWidget(self._solve_retry_btn)
+
         layout.addStretch()
         return _page_wrapper(w)
+
+    # ------------------------------------------------------------------
+    # Solve wiring (called by MainWindow after construction)
+    # ------------------------------------------------------------------
+
+    def wire_solve_button(self, session_provider: object) -> None:
+        """Store a reference to the session provider.
+
+        Parameters
+        ----------
+        session_provider : object
+            Object with a ``session`` attribute exposing the current
+            :class:`~photon.core.session.PhotonSession`.
+        """
+        self._session_provider = session_provider
+
+    # ------------------------------------------------------------------
+    # Solve button handler
+    # ------------------------------------------------------------------
+
+    def _on_solve_clicked(self) -> None:
+        """Start a plate-solve worker for the current session frame."""
+        import numpy as np
+        from PySide6.QtCore import QThreadPool
+
+        from photon.workers.plate_solve_worker import PlateSolveWorker
+
+        session_provider = getattr(self, "_session_provider", None)
+        if session_provider is None:
+            self._show_solve_error("No session provider set.")
+            return
+
+        session = getattr(session_provider, "session", None)
+        if session is None or session.image_stack is None:
+            self._show_solve_error("No frame loaded.")
+            return
+
+        idx = getattr(session_provider, "_current_frame", 0) or 0
+        stack = session.image_stack
+        if idx >= stack.shape[0]:
+            idx = 0
+
+        image = np.asarray(stack[idx], dtype=np.float64)
+
+        headers = getattr(session, "headers", [])
+        header = headers[idx] if idx < len(headers) else None
+
+        self._set_solving(True)
+
+        worker = PlateSolveWorker(image=image, header=header)
+        worker.signals.progress.connect(self._on_solve_progress)
+        worker.signals.result.connect(self._on_solve_result)
+        worker.signals.error.connect(self._on_solve_error_msg)
+        worker.signals.finished.connect(lambda: self._set_solving(False))
+        QThreadPool.globalInstance().start(worker)
+
+    # ------------------------------------------------------------------
+    # Solve state helpers
+    # ------------------------------------------------------------------
+
+    def _set_solving(self, active: bool) -> None:
+        """Toggle the solving UI state."""
+        self._solve_btn.setEnabled(not active)
+        self._solve_btn.setText("Solving…" if active else "Solve Field")
+        self._solve_retry_btn.setVisible(False)
+        self._solve_error_lbl.setVisible(False)
+
+        self._radar.setVisible(active)
+        if active:
+            self._radar.start()
+            self._solve_log.clear()
+            self._solve_log.setVisible(True)
+            self._solve_status_lbl.setText("Solving…")
+            self._solve_status_lbl.setVisible(True)
+        else:
+            self._radar.stop()
+
+    def _on_solve_progress(self, msg: str) -> None:
+        """Append a progress line to the log."""
+        self._solve_log.appendPlainText(msg)
+        # Auto-scroll to bottom
+        sb = self._solve_log.verticalScrollBar()
+        sb.setValue(sb.maximum())
+
+    def _on_solve_result(self, wcs: object) -> None:
+        """Handle a successful plate solve."""
+        self._solve_status_lbl.setText("Solved!")
+        self._solve_status_lbl.setStyleSheet(
+            f"color: {Colors.SUCCESS};"
+            f"font-size: {Typography.SIZE_XS}px;"
+            f"background-color: transparent;"
+        )
+        self.update_wcs_info(wcs)
+
+        # Store WCS back to session
+        session_provider = getattr(self, "_session_provider", None)
+        if session_provider is not None:
+            session = getattr(session_provider, "session", None)
+            if session is not None:
+                session.wcs = wcs
+
+    def _on_solve_error_msg(self, tb: str) -> None:
+        """Handle a solve failure."""
+        self._show_solve_error(tb)
+
+    def _show_solve_error(self, msg: str) -> None:
+        """Display an error message with a retry button."""
+        # Truncate for display — keep first 3 lines
+        lines = msg.strip().splitlines()
+        display = "\n".join(lines[:3])
+        if len(lines) > 3:
+            display += " …"
+        self._solve_error_lbl.setText(display)
+        self._solve_error_lbl.setVisible(True)
+        self._solve_retry_btn.setVisible(True)
+        self._solve_status_lbl.setText("Failed")
+        self._solve_status_lbl.setStyleSheet(
+            f"color: {Colors.DANGER};"
+            f"font-size: {Typography.SIZE_XS}px;"
+            f"background-color: transparent;"
+        )
+        self._solve_status_lbl.setVisible(True)
 
     def _build_page2(self) -> QScrollArea:
         """Photometry page."""

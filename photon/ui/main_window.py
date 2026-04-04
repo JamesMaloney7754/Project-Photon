@@ -290,6 +290,9 @@ class MainWindow(QMainWindow):
         self._bottom.frame_scrubbed.connect(self._show_frame)
         self._stepper.step_clicked.connect(self._set_pipeline_step)
 
+        # Wire the inspector solve button to this MainWindow (which has .session)
+        self._inspector.wire_solve_button(self)
+
         # Photometry panel signals
         self._phot_panel.select_target_requested.connect(
             lambda: self._canvas.set_interaction_mode("select_target")
