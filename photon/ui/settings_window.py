@@ -294,16 +294,70 @@ class SettingsWindow(QDialog):
     def _build_page_platesolve(self) -> QScrollArea:
         w, v = self._page_container("Plate Solving")
 
-        # Backend selection
-        self._radio_local = QRadioButton("Local (solve-field binary)")
-        self._radio_cloud = QRadioButton("Astrometry.net Cloud")
-        for rb in (self._radio_local, self._radio_cloud):
+        # ── Backend selection (ASTAP first) ───────────────────────────────
+        self._radio_astap  = QRadioButton("ASTAP (recommended for Windows)")
+        self._radio_local  = QRadioButton("Local astrometry.net (ANSVR)")
+        self._radio_cloud  = QRadioButton("Astrometry.net Cloud")
+        for rb in (self._radio_astap, self._radio_local, self._radio_cloud):
             rb.setStyleSheet(f"color: {Colors.TEXT_PRIMARY}; background-color: transparent;")
+        v.addWidget(self._radio_astap)
         v.addWidget(self._radio_local)
         v.addWidget(self._radio_cloud)
 
-        # Local group
-        self._local_group = QGroupBox("Local Solver")
+        # ── ASTAP group ───────────────────────────────────────────────────
+        self._astap_group = QGroupBox("ASTAP Solver")
+        ag = QVBoxLayout(self._astap_group)
+
+        self._astap_binary_le = QLineEdit()
+        self._astap_binary_le.setPlaceholderText(r"C:\Program Files\astap\astap.exe")
+        astap_browse = QPushButton("Browse…")
+        astap_browse.setFlat(True)
+        astap_browse.clicked.connect(
+            lambda: self._browse_file(self._astap_binary_le)
+        )
+        ar1 = QHBoxLayout()
+        ar1.addWidget(QLabel("astap.exe path:"))
+        ar1.addWidget(self._astap_binary_le, 1)
+        ar1.addWidget(astap_browse)
+        ag.addLayout(ar1)
+
+        self._astap_radius_sb = QDoubleSpinBox()
+        self._astap_radius_sb.setRange(1.0, 180.0)
+        self._astap_radius_sb.setSingleStep(5.0)
+        self._astap_radius_sb.setValue(30.0)
+        self._astap_radius_sb.setSuffix(" °")
+        self._astap_radius_sb.setStyleSheet(
+            f"color: {Colors.TEXT_GOLD}; background-color: {Colors.SURFACE_ALT};"
+            f"font-family: {Typography.FONT_MONO}; border-radius: 4px;"
+        )
+        ag.addLayout(_row("Search radius:", self._astap_radius_sb))
+
+        self._astap_downsample_sb = QSpinBox()
+        self._astap_downsample_sb.setRange(0, 4)
+        self._astap_downsample_sb.setValue(0)
+        self._astap_downsample_sb.setToolTip(
+            "0 = automatic, higher = faster but less accurate"
+        )
+        self._astap_downsample_sb.setStyleSheet(
+            f"color: {Colors.TEXT_GOLD}; background-color: {Colors.SURFACE_ALT};"
+        )
+        ag.addLayout(_row("Downsample:", self._astap_downsample_sb))
+
+        astap_test_row = QHBoxLayout()
+        self._astap_test_btn = QPushButton("Test ASTAP")
+        self._astap_test_btn.setFlat(True)
+        self._astap_test_btn.clicked.connect(self._test_astap_solver)
+        astap_test_row.addWidget(self._astap_test_btn)
+        self._astap_test_lbl = QLabel()
+        self._astap_test_lbl.setStyleSheet("background-color: transparent;")
+        self._astap_test_lbl.setVisible(False)
+        astap_test_row.addWidget(self._astap_test_lbl)
+        astap_test_row.addStretch()
+        ag.addLayout(astap_test_row)
+        v.addWidget(self._astap_group)
+
+        # ── Local (ANSVR) group ───────────────────────────────────────────
+        self._local_group = QGroupBox("Local astrometry.net (ANSVR)")
         lg = QVBoxLayout(self._local_group)
         self._local_binary_le = QLineEdit()
         self._local_binary_le.setPlaceholderText("/usr/local/bin/solve-field")
@@ -344,7 +398,7 @@ class SettingsWindow(QDialog):
         lg.addLayout(test_row)
         v.addWidget(self._local_group)
 
-        # Cloud group
+        # ── Cloud group ───────────────────────────────────────────────────
         self._cloud_group = QGroupBox("Astrometry.net Cloud")
         cg = QVBoxLayout(self._cloud_group)
         self._api_key_le = QLineEdit()
@@ -365,12 +419,16 @@ class SettingsWindow(QDialog):
             "Get a free key at nova.astrometry.net</a>"
         )
         link_lbl.setOpenExternalLinks(True)
-        link_lbl.setStyleSheet(f"font-size: {Typography.SIZE_SM}px; background-color: transparent;")
+        link_lbl.setStyleSheet(
+            f"font-size: {Typography.SIZE_SM}px; background-color: transparent;"
+        )
         cg.addWidget(link_lbl)
         v.addWidget(self._cloud_group)
 
-        # Scale / timeout (always visible)
-        self._scale_low_sb  = _make_spinbox(0.01, 100.0, 0.1, 0.1, " arcsec/px")
+        # ── Scale / timeout (visible for local + cloud only) ──────────────
+        self._scale_timeout_group = QGroupBox("Search parameters")
+        stg = QVBoxLayout(self._scale_timeout_group)
+        self._scale_low_sb  = _make_spinbox(0.01, 100.0, 0.1,  0.1, " arcsec/px")
         self._scale_high_sb = _make_spinbox(0.01, 100.0, 10.0, 0.5, " arcsec/px")
         self._timeout_sb = QSpinBox()
         self._timeout_sb.setRange(10, 600)
@@ -378,11 +436,13 @@ class SettingsWindow(QDialog):
         self._timeout_sb.setStyleSheet(
             f"color: {Colors.TEXT_GOLD}; background-color: {Colors.SURFACE_ALT};"
         )
-        v.addLayout(_row("Min scale:", self._scale_low_sb))
-        v.addLayout(_row("Max scale:", self._scale_high_sb))
-        v.addLayout(_row("Timeout:",   self._timeout_sb))
+        stg.addLayout(_row("Min scale:", self._scale_low_sb))
+        stg.addLayout(_row("Max scale:", self._scale_high_sb))
+        stg.addLayout(_row("Timeout:",   self._timeout_sb))
+        v.addWidget(self._scale_timeout_group)
         v.addStretch()
 
+        self._radio_astap.toggled.connect(self._update_solver_visibility)
         self._radio_local.toggled.connect(self._update_solver_visibility)
         self._radio_cloud.toggled.connect(self._update_solver_visibility)
         return self._scroll_wrap(w)
@@ -514,8 +574,12 @@ class SettingsWindow(QDialog):
 
         # Plate solving
         backend = sm.get("platesolve/backend")
+        self._radio_astap.setChecked(backend == "astap")
         self._radio_local.setChecked(backend == "local")
-        self._radio_cloud.setChecked(backend != "local")
+        self._radio_cloud.setChecked(backend == "astrometry_net")
+        self._astap_binary_le.setText(sm.get("platesolve/astap_binary_path"))
+        self._astap_radius_sb.setValue(float(sm.get("platesolve/astap_search_radius")))
+        self._astap_downsample_sb.setValue(int(sm.get("platesolve/astap_downsample")))
         self._local_binary_le.setText(sm.get("platesolve/local_binary_path"))
         self._index_dir_le.setText(sm.get("platesolve/index_dir"))
         self._api_key_le.setText(sm.get("platesolve/astrometry_api_key"))
@@ -551,7 +615,16 @@ class SettingsWindow(QDialog):
         sm = self._sm
 
         sm.set("general/confirm_on_quit", self._confirm_quit_cb.isChecked())
-        sm.set("platesolve/backend", "local" if self._radio_local.isChecked() else "astrometry_net")
+        if self._radio_astap.isChecked():
+            backend = "astap"
+        elif self._radio_local.isChecked():
+            backend = "local"
+        else:
+            backend = "astrometry_net"
+        sm.set("platesolve/backend", backend)
+        sm.set("platesolve/astap_binary_path", self._astap_binary_le.text())
+        sm.set("platesolve/astap_search_radius", self._astap_radius_sb.value())
+        sm.set("platesolve/astap_downsample", self._astap_downsample_sb.value())
         sm.set("platesolve/local_binary_path", self._local_binary_le.text())
         sm.set("platesolve/index_dir", self._index_dir_le.text())
         sm.set("platesolve/astrometry_api_key", self._api_key_le.text())
@@ -599,9 +672,14 @@ class SettingsWindow(QDialog):
         self._stack.setCurrentIndex(index)
 
     def _update_solver_visibility(self) -> None:
-        local = self._radio_local.isChecked()
+        astap  = self._radio_astap.isChecked()
+        local  = self._radio_local.isChecked()
+        cloud  = self._radio_cloud.isChecked()
+        self._astap_group.setVisible(astap)
         self._local_group.setVisible(local)
-        self._cloud_group.setVisible(not local)
+        self._cloud_group.setVisible(cloud)
+        # Scale/timeout only relevant for local (ANSVR) and cloud backends
+        self._scale_timeout_group.setVisible(local or cloud)
 
     def _update_aperture_preview(self) -> None:
         self._ap_preview.set_params(
@@ -629,6 +707,23 @@ class SettingsWindow(QDialog):
     def _clear_recent(self) -> None:
         self._sm.set("general/recent_directories", [])
         self._recent_list.clear()
+
+    def _test_astap_solver(self) -> None:
+        from photon.core.plate_solver import ASTAPSolver
+        binary = self._astap_binary_le.text().strip() or "astap"
+        found, version = ASTAPSolver.detect_installation(binary)
+        if found:
+            label = f"\u2713 {version}" if version else "\u2713 Found"
+            self._astap_test_lbl.setText(label)
+            self._astap_test_lbl.setStyleSheet(
+                f"color: {Colors.SUCCESS}; background-color: transparent;"
+            )
+        else:
+            self._astap_test_lbl.setText("\u2717 Not found")
+            self._astap_test_lbl.setStyleSheet(
+                f"color: {Colors.DANGER}; background-color: transparent;"
+            )
+        self._astap_test_lbl.setVisible(True)
 
     def _test_local_solver(self) -> None:
         binary = self._local_binary_le.text().strip() or "solve-field"

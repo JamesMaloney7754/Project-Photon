@@ -404,19 +404,32 @@ class MainWindow(QMainWindow):
     # ------------------------------------------------------------------
 
     def _check_solver_installation(self) -> None:
-        """Warn once per session if no local solver is available or configured."""
+        """Warn once per session if no plate solver is available or configured."""
         sm = get_settings_manager()
+        backend = sm.get("platesolve/backend")
 
-        # Only relevant when the backend is set to local
-        if sm.get("platesolve/backend") != "local":
-            return
+        show_warning = False
 
-        # If the user has already configured a binary path, nothing to say
-        if sm.get("platesolve/local_binary_path"):
-            return
+        if backend == "astap":
+            binary = sm.get("platesolve/astap_binary_path")
+            if not binary:
+                # No path configured — check PATH/common locations
+                from photon.core.plate_solver import ASTAPSolver
+                found, _ = ASTAPSolver.detect_installation()
+                show_warning = not found
+            else:
+                from photon.core.plate_solver import ASTAPSolver
+                found, _ = ASTAPSolver.detect_installation(binary)
+                show_warning = not found
 
-        from photon.core.plate_solver import LocalAstrometrySolver
-        if LocalAstrometrySolver.detect_installation() is not None:
+        elif backend == "local":
+            if sm.get("platesolve/local_binary_path"):
+                return  # path explicitly set — trust the user
+            from photon.core.plate_solver import LocalAstrometrySolver
+            show_warning = LocalAstrometrySolver.detect_installation() is None
+
+        # Cloud backend never needs a local binary
+        if not show_warning:
             return
 
         from PySide6.QtWidgets import QMessageBox

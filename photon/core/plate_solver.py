@@ -1,10 +1,12 @@
 """Plate-solver interface and concrete implementations.
 
-This module defines the abstract ``PlateSolver`` base class and two concrete
+This module defines the abstract ``PlateSolver`` base class and three concrete
 implementations:
 
+* :class:`ASTAPSolver` — calls the ``astap`` / ``astap.exe`` binary via
+  ``subprocess``; recommended on Windows (no Cygwin dependency).
 * :class:`LocalAstrometrySolver` — calls the ``solve-field`` binary from the
-  local ``astrometry.net`` package via ``subprocess``.
+  local ``astrometry.net`` / ANSVR package via ``subprocess``.
 * :class:`AstrometryNetSolver` — submits images to the Astrometry.net cloud
   API via ``astroquery.astrometry_net``.
 
@@ -72,6 +74,186 @@ class PlateSolver(abc.ABC):
         PlateSolverError
             If the solve attempt fails, times out, or returns no solution.
         """
+
+
+# ── ASTAPSolver ───────────────────────────────────────────────────────────────
+
+
+class ASTAPSolver(PlateSolver):
+    """Plate solver that shells out to the ASTAP executable.
+
+    ASTAP (Astrometric STAcking Program) is a standalone binary solver that
+    requires no Cygwin or ANSVR dependency, making it the recommended local
+    backend on Windows.
+
+    Parameters
+    ----------
+    binary_path : str
+        Path to the ``astap`` / ``astap.exe`` executable.
+    search_radius : float
+        Search radius in degrees (``-r`` flag).  Default 30.
+    downsample : int
+        Downsample factor (``-z`` flag, 0 = auto).  Default 0.
+    """
+
+    def __init__(
+        self,
+        binary_path: str,
+        search_radius: float = 30.0,
+        downsample: int = 0,
+    ) -> None:
+        if not binary_path:
+            raise PlateSolverError(
+                "ASTAP binary path is not set. "
+                "Configure it in Settings \u2192 Plate Solving."
+            )
+        self._binary        = binary_path
+        self._search_radius = search_radius
+        self._downsample    = downsample
+
+    # ------------------------------------------------------------------
+    # Public helpers
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def detect_installation(binary_path: str = "astap") -> tuple[bool, str]:
+        """Probe *binary_path* by running ``astap -version``.
+
+        Parameters
+        ----------
+        binary_path : str
+            Path to the ASTAP executable.  Defaults to ``"astap"`` so that
+            PATH-installed binaries are found automatically.
+
+        Returns
+        -------
+        tuple[bool, str]
+            ``(True, version_string)`` on success, ``(False, "")`` on any
+            failure (binary not found, non-zero exit, or timeout).
+        """
+        try:
+            result = subprocess.run(
+                [binary_path, "-version"],
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+            if result.returncode == 0:
+                version = (result.stdout or result.stderr or "").strip()
+                return True, version
+            return False, ""
+        except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
+            return False, ""
+
+    # ------------------------------------------------------------------
+    # solve()
+    # ------------------------------------------------------------------
+
+    def solve(
+        self,
+        image: np.ndarray,
+        header: object,
+        progress_callback: Optional[Callable[[str], None]] = None,
+    ) -> object:
+        """Run ASTAP on *image* and return a WCS.
+
+        Parameters
+        ----------
+        image : np.ndarray
+            2-D science image array.
+        header : astropy.io.fits.Header
+            FITS header written to the temp input file.
+        progress_callback : callable or None
+            Called with each stdout line from ASTAP.
+
+        Returns
+        -------
+        astropy.wcs.WCS
+
+        Raises
+        ------
+        PlateSolverError
+            On non-zero exit code or missing ``.wcs`` output file.
+        """
+        from astropy.io import fits as astrofits
+        from astropy.wcs import WCS
+
+        def _emit(msg: str) -> None:
+            logger.debug("ASTAP: %s", msg.rstrip())
+            if progress_callback is not None:
+                progress_callback(msg.rstrip())
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            input_fits   = os.path.join(tmpdir, "input.fits")
+            output_prefix = os.path.join(tmpdir, "output")
+            output_wcs   = output_prefix + ".wcs"
+
+            # ── 1. Write temp FITS ────────────────────────────────────────
+            if isinstance(header, astrofits.Header):
+                hdr = header.copy()
+            else:
+                hdr = astrofits.Header()
+
+            hdu = astrofits.PrimaryHDU(data=image.astype(np.float32), header=hdr)
+            hdu.writeto(input_fits, overwrite=True)
+            _emit(f"Wrote temp FITS: {input_fits}")
+
+            # ── 2. Build command ──────────────────────────────────────────
+            cmd = [
+                self._binary,
+                "-f",  input_fits,
+                "-r",  str(self._search_radius),
+                "-z",  str(self._downsample),
+                "-o",  output_prefix,
+                "-wcs",
+            ]
+            _emit(f"Running: {' '.join(cmd)}")
+
+            # ── 3. Run ASTAP, stream stdout ───────────────────────────────
+            try:
+                proc = subprocess.Popen(
+                    cmd,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True,
+                )
+            except FileNotFoundError as exc:
+                raise PlateSolverError(
+                    f"ASTAP binary not found at '{self._binary}': {exc}"
+                ) from exc
+
+            stderr_buf: list[str] = []
+            assert proc.stdout is not None
+            for line in proc.stdout:
+                _emit(line)
+
+            proc.wait()
+
+            if proc.stderr:
+                stderr_buf = proc.stderr.readlines()
+
+            if proc.returncode != 0:
+                raise PlateSolverError(
+                    f"ASTAP exited with code {proc.returncode}.\n"
+                    + "".join(stderr_buf)
+                )
+
+            # ── 4. Read .wcs output ───────────────────────────────────────
+            if not os.path.isfile(output_wcs):
+                raise PlateSolverError(
+                    "ASTAP completed but produced no .wcs output file. "
+                    "The field may not have been solved."
+                )
+
+            try:
+                with astrofits.open(output_wcs) as hdul:
+                    wcs = WCS(hdul[0].header)
+                _emit("WCS solution loaded successfully.")
+                return wcs
+            except Exception as exc:
+                raise PlateSolverError(
+                    f"Failed to read WCS from ASTAP output: {exc}"
+                ) from exc
 
 
 # ── LocalAstrometrySolver ──────────────────────────────────────────────────────
@@ -436,7 +618,7 @@ def get_solver() -> PlateSolver:
 
     Reads ``platesolve/backend`` from
     :func:`~photon.core.settings_manager.get_settings_manager`.
-    Returns either a :class:`LocalAstrometrySolver` or an
+    Returns an :class:`ASTAPSolver`, :class:`LocalAstrometrySolver`, or
     :class:`AstrometryNetSolver` with all parameters pulled from settings.
 
     Returns
@@ -452,6 +634,13 @@ def get_solver() -> PlateSolver:
 
     sm = get_settings_manager()
     backend = sm.get("platesolve/backend")
+
+    if backend == "astap":
+        return ASTAPSolver(
+            binary_path=sm.get("platesolve/astap_binary_path"),
+            search_radius=float(sm.get("platesolve/astap_search_radius")),
+            downsample=int(sm.get("platesolve/astap_downsample")),
+        )
 
     if backend == "local":
         return LocalAstrometrySolver(
@@ -474,5 +663,5 @@ def get_solver() -> PlateSolver:
 
     raise PlateSolverError(
         f"Unknown plate-solving backend: '{backend}'. "
-        "Expected 'local' or 'astrometry_net'."
+        "Expected 'astap', 'local', or 'astrometry_net'."
     )
