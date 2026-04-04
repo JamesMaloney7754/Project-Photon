@@ -156,3 +156,107 @@ def test_settings_manager_defaults() -> None:
 
     # Reset singleton after test
     sm_mod._instance = None
+
+
+# ---------------------------------------------------------------------------
+# test_snap_to_nearest_star
+# ---------------------------------------------------------------------------
+
+
+def test_snap_to_nearest_star_finds_closest() -> None:
+    """snap_to_nearest_star returns the index of the closest star."""
+    pytest.importorskip("photutils")
+
+    sources = [
+        (20.0, 20.0, 5000.0),
+        (50.0, 50.0, 4000.0),
+        (70.0, 70.0, 3000.0),
+    ]
+    image = _make_gaussian_image((100, 100), sources, sigma=2.5, noise_std=5.0)
+
+    from photon.core.star_detector import detect_stars, snap_to_nearest_star
+
+    stars = detect_stars(image, fwhm=3.0, threshold_sigma=3.0)
+    assert len(stars) >= 2
+
+    # Click very close to one detected star
+    xs = list(stars["xcentroid"])
+    ys = list(stars["ycentroid"])
+    target_row = 0
+    click_x = xs[target_row] + 2.0   # 2 px offset
+    click_y = ys[target_row] + 2.0
+
+    row = snap_to_nearest_star(click_x, click_y, stars, max_distance_px=10.0)
+    assert row == target_row, f"Expected row {target_row}, got {row}"
+
+
+def test_snap_to_nearest_star_returns_none_when_too_far() -> None:
+    """snap_to_nearest_star returns None when no star is within range."""
+    pytest.importorskip("photutils")
+
+    sources = [(50.0, 50.0, 5000.0)]
+    image = _make_gaussian_image((100, 100), sources, sigma=2.5, noise_std=5.0)
+
+    from photon.core.star_detector import detect_stars, snap_to_nearest_star
+
+    stars = detect_stars(image, fwhm=3.0, threshold_sigma=3.0)
+
+    # Click far from the only star
+    row = snap_to_nearest_star(5.0, 5.0, stars, max_distance_px=5.0)
+    assert row is None
+
+
+# ---------------------------------------------------------------------------
+# test_build_light_curve
+# ---------------------------------------------------------------------------
+
+
+def test_build_light_curve_columns_and_length() -> None:
+    """build_light_curve produces a Table with the expected columns and length."""
+    import numpy as np
+    from photon.core.photometry import build_light_curve
+
+    n = 10
+    diff_mags = np.random.default_rng(0).normal(0.0, 0.005, n)
+    table = build_light_curve(diff_mags, observation_times=None)
+
+    assert len(table) == n
+    for col in ("time", "mag", "mag_err", "flagged", "frame_index"):
+        assert col in table.colnames, f"Missing column '{col}'"
+    assert not any(table["flagged"]), "Expected no flagged frames by default"
+
+
+def test_build_light_curve_respects_frame_flags() -> None:
+    """Flagged frames appear in the table with flagged=True."""
+    import numpy as np
+    from photon.core.photometry import build_light_curve
+
+    n = 5
+    diff_mags = np.zeros(n)
+    flags = np.array([False, True, False, True, False])
+    table = build_light_curve(diff_mags, observation_times=None, frame_flags=flags)
+
+    assert list(table["flagged"]) == [False, True, False, True, False]
+
+
+# ---------------------------------------------------------------------------
+# test_aperture_photometry_out_of_bounds
+# ---------------------------------------------------------------------------
+
+
+def test_aperture_photometry_raises_on_out_of_bounds() -> None:
+    """run_aperture_photometry raises PhotometryError for edge-clipping apertures."""
+    pytest.importorskip("photutils")
+
+    import numpy as np
+    from photon.core.photometry import PhotometryError, run_aperture_photometry
+
+    stack = np.ones((2, 50, 50))
+
+    with pytest.raises(PhotometryError):
+        run_aperture_photometry(
+            stack,
+            target_xy=(2.0, 2.0),   # too close to the edge
+            comparison_xys=[(25.0, 25.0)],
+            annulus_outer=15.0,
+        )
