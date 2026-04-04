@@ -252,6 +252,36 @@ class MainWindow(QMainWindow):
         logo = _LogoWidget()
         layout.addWidget(logo, 0, Qt.AlignmentFlag.AlignVCenter)
 
+        layout.addSpacing(12)
+
+        # Catalog overlay toggle button (flat, checkable)
+        from PySide6.QtWidgets import QPushButton
+        self._catalog_toggle_btn = QPushButton("Catalog")
+        self._catalog_toggle_btn.setCheckable(True)
+        self._catalog_toggle_btn.setChecked(True)
+        self._catalog_toggle_btn.setFixedHeight(28)
+        self._catalog_toggle_btn.setStyleSheet(
+            f"QPushButton {{"
+            f"  background-color: transparent;"
+            f"  color: {Colors.TEXT_SECONDARY};"
+            f"  border: 1px solid {Colors.BORDER};"
+            f"  border-radius: 6px;"
+            f"  padding: 0 10px;"
+            f"  font-size: {Typography.SIZE_XS}px;"
+            f"}}"
+            f"QPushButton:checked {{"
+            f"  background-color: rgba(124,58,237,40);"  # Colors.VIOLET_GLOW
+            f"  color: {Colors.VIOLET_BRIGHT};"
+            f"  border-color: {Colors.VIOLET};"
+            f"}}"
+            f"QPushButton:hover:!checked {{"
+            f"  background-color: {Colors.SURFACE_ALT};"
+            f"  color: {Colors.TEXT_PRIMARY};"
+            f"}}"
+        )
+        self._catalog_toggle_btn.toggled.connect(self._canvas.toggle_catalog_overlay)
+        layout.addWidget(self._catalog_toggle_btn, 0, Qt.AlignmentFlag.AlignVCenter)
+
         # Stepper — centered
         layout.addStretch(1)
         layout.addWidget(self._stepper, 0, Qt.AlignmentFlag.AlignVCenter)
@@ -292,6 +322,7 @@ class MainWindow(QMainWindow):
 
         # Wire the inspector solve button to this MainWindow (which has .session)
         self._inspector.wire_solve_button(self)
+        self._inspector.solve_complete.connect(self._on_solve_complete)
 
         # Photometry panel signals
         self._phot_panel.select_target_requested.connect(
@@ -564,6 +595,124 @@ class MainWindow(QMainWindow):
                 self.session.comparison_xys,
             )
             self._canvas.set_interaction_mode("none")
+
+    # ------------------------------------------------------------------
+    # Plate solve → catalog pipeline
+    # ------------------------------------------------------------------
+
+    def _on_solve_complete(self, wcs: object) -> None:
+        """Handle a successful plate solve: advance stepper, query catalogs."""
+        self._stepper.set_step_complete(1)
+        self._stepper.set_active_step(1)
+        self._bottom.set_status("Plate solved — querying catalogs…")
+        logger.info("Plate solve complete; dispatching catalog queries.")
+        self._dispatch_catalog_query(wcs)
+
+    def _dispatch_catalog_query(self, wcs: object) -> None:
+        """Dispatch off-thread catalog queries for the solved field."""
+        from photon.core.settings_manager import get_settings_manager as _gsm
+        from photon.workers.catalog_worker import CatalogWorker
+
+        sm = _gsm()
+        radius = float(sm.get("catalog/search_radius_arcmin"))
+
+        worker = CatalogWorker(wcs=wcs, radius_arcmin=radius)
+        worker.signals.result.connect(self._on_catalog_results)
+        worker.signals.error.connect(
+            lambda tb: self._bottom.set_status("Catalog query failed.")
+        )
+        QThreadPool.globalInstance().start(worker)
+
+    def _on_catalog_results(self, results: dict) -> None:
+        """Store catalog results, update overlay, and annotate comparisons."""
+        import math
+
+        self.session.catalog_matches = results
+
+        n_simbad = len(results.get("simbad") or [])
+        n_gaia   = len(results.get("gaia")   or [])
+        n_vsx    = len(results.get("vsx")    or [])
+        self._bottom.set_status(
+            f"Catalogs loaded — SIMBAD {n_simbad}, Gaia {n_gaia}, VSX {n_vsx}"
+        )
+        logger.info("Catalog results: SIMBAD=%d, Gaia=%d, VSX=%d", n_simbad, n_gaia, n_vsx)
+
+        if self.session.wcs is not None:
+            self._canvas.display_catalog_overlay(self.session.wcs, results)
+            self._canvas.toggle_catalog_overlay(self._catalog_toggle_btn.isChecked())
+
+        # Annotate comparison stars with catalog names where match < 5px
+        self._update_comparison_catalog_names(results)
+
+    def _update_comparison_catalog_names(self, results: dict) -> None:
+        """Find catalog names within 5px of each comparison star and update panel."""
+        import numpy as np
+        from astropy.coordinates import SkyCoord
+        import astropy.units as u
+
+        wcs = self.session.wcs
+        comp_xys = self.session.comparison_xys
+        if wcs is None or not comp_xys:
+            return
+
+        name_map: dict[int, str] = {}
+
+        # Build combined SIMBAD + VSX name lookup (RA/Dec in degrees + name)
+        cat_ra:   list[float] = []
+        cat_dec:  list[float] = []
+        cat_name: list[str]   = []
+
+        for cat_key in ("simbad", "vsx"):
+            tbl = results.get(cat_key)
+            if tbl is None or len(tbl) == 0 or "name" not in tbl.colnames:
+                continue
+            ra_col  = tbl["ra"]
+            dec_col = tbl["dec"]
+            names   = tbl["name"]
+
+            for i in range(len(tbl)):
+                try:
+                    ra_v  = ra_col[i]
+                    dec_v = dec_col[i]
+                    # SIMBAD stores sexagesimal strings
+                    if isinstance(ra_v, (bytes, str)):
+                        sc = SkyCoord(str(ra_v), str(dec_v), unit=(u.hourangle, u.deg))
+                        cat_ra.append(float(sc.ra.deg))
+                        cat_dec.append(float(sc.dec.deg))
+                    else:
+                        cat_ra.append(float(ra_v))
+                        cat_dec.append(float(dec_v))
+                    cat_name.append(str(names[i]).strip())
+                except Exception:
+                    pass
+
+        if not cat_ra:
+            return
+
+        cat_ra_arr  = np.array(cat_ra,  dtype=float)
+        cat_dec_arr = np.array(cat_dec, dtype=float)
+
+        try:
+            cat_coords = SkyCoord(cat_ra_arr, cat_dec_arr, unit=u.deg)
+            # Convert catalog positions to pixels
+            cat_xs, cat_ys = wcs.world_to_pixel(cat_coords)
+            cat_xs = np.asarray(cat_xs, dtype=float)
+            cat_ys = np.asarray(cat_ys, dtype=float)
+        except Exception:
+            return
+
+        MATCH_RADIUS_PX = 5.0
+
+        for c_idx, (cx, cy) in enumerate(comp_xys):
+            dx = cat_xs - cx
+            dy = cat_ys - cy
+            dist = np.sqrt(dx * dx + dy * dy)
+            best = int(np.argmin(dist))
+            if dist[best] < MATCH_RADIUS_PX:
+                name_map[c_idx] = cat_name[best]
+
+        if name_map:
+            self._phot_panel.update_comparison_catalog_names(name_map)
 
     def _auto_select_comparisons(self) -> None:
         """Auto-select comparison stars using star detection results."""

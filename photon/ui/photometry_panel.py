@@ -333,6 +333,22 @@ class PhotometryPanel(GlassPanel):
             self._comp_list.addItem(item)
         self._update_run_btn()
 
+    def update_comparison_catalog_names(self, name_map: dict[int, str]) -> None:
+        """Append catalog names to comparison list items where a match exists.
+
+        Parameters
+        ----------
+        name_map : dict[int, str]
+            Mapping of comparison list index (0-based) to catalog name string.
+            Only indices present in the dict are updated.
+        """
+        for i in range(self._comp_list.count()):
+            if i in name_map:
+                item = self._comp_list.item(i)
+                if item is not None:
+                    cx, cy = self._comparison_xys[i]
+                    item.setText(f"C{i + 1}: ({cx:.1f}, {cy:.1f})  {name_map[i]}")
+
     def on_photometry_done(self, result: dict) -> None:
         """Called when the photometry worker completes.
 

@@ -25,6 +25,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from PySide6.QtCore import Signal as _Signal
 from photon.ui.glass_panel import GlassPanel
 from photon.ui.theme import Colors, Typography
 
@@ -249,11 +250,18 @@ class InspectorPanel(GlassPanel):
     the corresponding page with live data using :class:`DataRow` widgets that
     flash on change.
 
+    Signals
+    -------
+    solve_complete : Signal(object)
+        Emitted with the ``astropy.wcs.WCS`` after a successful plate solve.
+
     Parameters
     ----------
     parent : QWidget | None
         Optional parent widget.
     """
+
+    solve_complete: _Signal = _Signal(object)
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -505,6 +513,8 @@ class InspectorPanel(GlassPanel):
             session = getattr(session_provider, "session", None)
             if session is not None:
                 session.wcs = wcs
+
+        self.solve_complete.emit(wcs)
 
     def _on_solve_error_msg(self, tb: str) -> None:
         """Handle a solve failure."""

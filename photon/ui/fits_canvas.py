@@ -229,6 +229,10 @@ class FitsCanvas(QWidget):
         self._image_obj: Any = None
         self._stretch: str = "asinh"
 
+        # Catalog overlay artists (matplotlib)
+        self._catalog_overlay_artists: list[Any] = []
+        self._catalog_overlay_visible: bool = True
+
     # ------------------------------------------------------------------
     # Public API
     # ------------------------------------------------------------------
@@ -296,9 +300,205 @@ class FitsCanvas(QWidget):
         self._ax.set_facecolor(Colors.CANVAS_BG)
         self._image_obj = None
         self._clear_star_artists()
+        self._clear_catalog_artists()
         self._target_xy = None
         self._comparison_xys.clear()
         self._stack.setCurrentIndex(0)
+
+    # ------------------------------------------------------------------
+    # Catalog overlay
+    # ------------------------------------------------------------------
+
+    def display_catalog_overlay(self, wcs: Any, catalog_results: dict) -> None:
+        """Draw catalog objects on the current image using *wcs* for projection.
+
+        Renders three layers:
+        - **Gaia DR3**: tiny grey dots (size 5, alpha 0.4) for background stars.
+        - **SIMBAD**: small cyan diamonds labelled with the object name for
+          sources within 3 arcmin of the image centre.
+        - **VSX variables**: orange star (``"*"``) markers.
+
+        A legend is drawn in the upper-right corner of the axes.
+
+        Parameters
+        ----------
+        wcs : astropy.wcs.WCS
+            Plate solution for RA/Dec → pixel conversion.
+        catalog_results : dict
+            ``{"simbad": Table, "gaia": Table, "vsx": Table}`` as returned by
+            :func:`~photon.core.catalog.query_all_catalogs`.
+        """
+        import numpy as np
+
+        self._clear_catalog_artists()
+
+        if wcs is None or self._image_obj is None:
+            return
+
+        # ── Helper: RA/Dec columns → pixel coords ─────────────────────────
+        def _to_pixels(ra_arr: Any, dec_arr: Any) -> tuple[np.ndarray, np.ndarray]:
+            from astropy.coordinates import SkyCoord
+            import astropy.units as au
+            coords = SkyCoord(ra=ra_arr, dec=dec_arr, unit=(au.deg, au.deg))
+            xs, ys = wcs.world_to_pixel(coords)
+            return np.asarray(xs, dtype=float), np.asarray(ys, dtype=float)
+
+        # ── Image bounds for visibility check ─────────────────────────────
+        img = self._image_obj.get_array()
+        h, w = img.shape[:2]
+
+        def _in_bounds(xs: np.ndarray, ys: np.ndarray) -> np.ndarray:
+            return (xs >= 0) & (xs < w) & (ys >= 0) & (ys < h)
+
+        legend_handles = []
+        legend_labels  = []
+
+        # ── Gaia DR3 — tiny grey dots ──────────────────────────────────────
+        gaia = catalog_results.get("gaia")
+        if gaia is not None and len(gaia) > 0 and "ra" in gaia.colnames:
+            try:
+                gxs, gys = _to_pixels(
+                    np.asarray(gaia["ra"],  dtype=float),
+                    np.asarray(gaia["dec"], dtype=float),
+                )
+                mask = _in_bounds(gxs, gys)
+                if mask.any():
+                    sc = self._ax.scatter(
+                        gxs[mask], gys[mask],
+                        s=5, color="#888888", alpha=0.4, zorder=8,
+                        marker="o", linewidths=0,
+                    )
+                    sc._photon_catalog = True  # type: ignore[attr-defined]
+                    self._catalog_overlay_artists.append(sc)
+                    legend_handles.append(sc)
+                    legend_labels.append("Gaia DR3")
+            except Exception as exc:
+                logger.debug("Gaia overlay failed: %s", exc)
+
+        # ── VSX — orange star markers ─────────────────────────────────────
+        vsx = catalog_results.get("vsx")
+        if vsx is not None and len(vsx) > 0 and "ra" in vsx.colnames:
+            try:
+                vxs, vys = _to_pixels(
+                    np.asarray(vsx["ra"],  dtype=float),
+                    np.asarray(vsx["dec"], dtype=float),
+                )
+                mask = _in_bounds(vxs, vys)
+                if mask.any():
+                    sc = self._ax.scatter(
+                        vxs[mask], vys[mask],
+                        s=60, color="#f97316", alpha=0.85, zorder=10,  # orange
+                        marker="*", linewidths=0,
+                    )
+                    sc._photon_catalog = True  # type: ignore[attr-defined]
+                    self._catalog_overlay_artists.append(sc)
+                    legend_handles.append(sc)
+                    legend_labels.append("VSX variable")
+            except Exception as exc:
+                logger.debug("VSX overlay failed: %s", exc)
+
+        # ── SIMBAD — cyan diamonds with names ─────────────────────────────
+        simbad = catalog_results.get("simbad")
+        if simbad is not None and len(simbad) > 0 and "ra" in simbad.colnames:
+            try:
+                from astropy.coordinates import SkyCoord
+                import astropy.units as au
+
+                # Determine image centre in RA/Dec
+                sky_centre = wcs.pixel_to_world(w / 2, h / 2)
+                c_ra  = float(sky_centre.ra.deg)
+                c_dec = float(sky_centre.dec.deg)
+                centre_coord = SkyCoord(c_ra, c_dec, unit=au.deg)
+
+                # Parse SIMBAD RA/Dec strings (sexagesimal) to degrees
+                ra_str  = list(simbad["ra"])
+                dec_str = list(simbad["dec"])
+                try:
+                    sky = SkyCoord(ra_str, dec_str, unit=(au.hourangle, au.deg))
+                    ra_deg  = np.asarray(sky.ra.deg,  dtype=float)
+                    dec_deg = np.asarray(sky.dec.deg, dtype=float)
+                except Exception:
+                    # Fall back: try treating as degrees
+                    ra_deg  = np.asarray([float(r) for r in ra_str],  dtype=float)
+                    dec_deg = np.asarray([float(d) for d in dec_str], dtype=float)
+
+                sxs, sys_ = _to_pixels(ra_deg, dec_deg)
+                mask = _in_bounds(sxs, sys_)
+
+                if mask.any():
+                    sc = self._ax.scatter(
+                        sxs[mask], sys_[mask],
+                        s=50, color="#22d3ee", alpha=0.9, zorder=11,  # cyan
+                        marker="D", linewidths=0,
+                    )
+                    sc._photon_catalog = True  # type: ignore[attr-defined]
+                    self._catalog_overlay_artists.append(sc)
+                    legend_handles.append(sc)
+                    legend_labels.append("SIMBAD")
+
+                # Labels for objects within 3 arcmin of image centre
+                names = list(simbad["name"])
+                all_coords = SkyCoord(ra_deg, dec_deg, unit=au.deg)
+                seps = centre_coord.separation(all_coords).to(au.arcmin).value
+
+                indices = np.where(mask)[0]
+                for i in indices:
+                    if seps[i] < 3.0:
+                        name = str(names[i]).strip()
+                        if name:
+                            txt = self._ax.text(
+                                sxs[i] + 5, sys_[i] + 5, name,
+                                color="#22d3ee", fontsize=5,
+                                alpha=0.85, zorder=12,
+                            )
+                            txt._photon_catalog = True  # type: ignore[attr-defined]
+                            self._catalog_overlay_artists.append(txt)
+
+            except Exception as exc:
+                logger.debug("SIMBAD overlay failed: %s", exc)
+
+        # ── Legend ────────────────────────────────────────────────────────
+        if legend_handles:
+            leg = self._ax.legend(
+                legend_handles, legend_labels,
+                loc="upper right",
+                fontsize=5,
+                framealpha=0.5,
+                facecolor=Colors.SURFACE,
+                edgecolor=Colors.BORDER,
+                labelcolor=Colors.TEXT_SECONDARY,
+                markerscale=1.2,
+            )
+            leg._photon_catalog = True  # type: ignore[attr-defined]
+            self._catalog_overlay_artists.append(leg)
+
+        # Apply current visibility
+        for art in self._catalog_overlay_artists:
+            art.set_visible(self._catalog_overlay_visible)
+
+        self._mpl_canvas.draw_idle()
+
+    def toggle_catalog_overlay(self, visible: bool) -> None:
+        """Show or hide catalog overlay artists without re-querying.
+
+        Parameters
+        ----------
+        visible : bool
+            ``True`` to show, ``False`` to hide.
+        """
+        self._catalog_overlay_visible = visible
+        for art in self._catalog_overlay_artists:
+            art.set_visible(visible)
+        if self._catalog_overlay_artists:
+            self._mpl_canvas.draw_idle()
+
+    def _clear_catalog_artists(self) -> None:
+        for art in self._catalog_overlay_artists:
+            try:
+                art.remove()
+            except Exception:
+                pass
+        self._catalog_overlay_artists.clear()
 
     # ------------------------------------------------------------------
     # Star overlay
