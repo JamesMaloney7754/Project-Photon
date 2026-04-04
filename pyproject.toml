@@ -24,11 +24,16 @@ dependencies = [
 [project.optional-dependencies]
 dev = [
     "pytest>=8.0",
-    "pytest-qt>=4.4",
     "pytest-cov>=5.0",
     "ruff>=0.4",
     "Pillow>=10.0",
     "pyinstaller>=6.0",
+]
+
+# Install this group only when writing/running UI widget tests that need
+# a real (or offscreen) Qt display.  Requires PySide6 to be importable.
+ui-test = [
+    "pytest-qt>=4.4",
 ]
 
 [project.scripts]
@@ -39,7 +44,6 @@ packages = ["photon"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-qt_api = "pyside6"
 
 [tool.ruff]
 line-length = 100
