@@ -2,6 +2,8 @@
 
 import logging
 import sys
+import traceback
+from pathlib import Path
 
 from PySide6.QtGui import QColor, QFontDatabase, QIcon, QPixmap
 from PySide6.QtWidgets import QApplication
@@ -14,6 +16,26 @@ logger = logging.getLogger(__name__)
 
 def main() -> None:
     """Launch the Photon desktop application."""
+    # ── Crash logging — must be set up before anything else ───────────────
+    log_path = Path.home() / "photon_crash.log"
+    logging.basicConfig(
+        filename=str(log_path),
+        level=logging.DEBUG,
+        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+    )
+
+    def handle_exception(
+        exc_type: type,
+        exc_value: BaseException,
+        exc_tb: object,
+    ) -> None:
+        logging.critical(
+            "Uncaught exception",
+            exc_info=(exc_type, exc_value, exc_tb),
+        )
+
+    sys.excepthook = handle_exception
+
     app = QApplication(sys.argv)
     app.setApplicationName("Photon")
     app.setOrganizationName("Photon Astrophotography")

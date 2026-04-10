@@ -7,12 +7,15 @@ never blocked by disk I/O.
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 
 import numpy as np
 
 from photon.core.fits_loader import load_fits_sequence
 from photon.workers.base_worker import BaseWorker
+
+logger = logging.getLogger(__name__)
 
 
 class FitsLoaderWorker(BaseWorker):
@@ -63,4 +66,11 @@ class FitsLoaderWorker(BaseWorker):
         OSError
             If any file is not a valid FITS file.
         """
-        return load_fits_sequence(self._paths)
+        try:
+            return load_fits_sequence(self._paths)
+        except Exception:
+            logger.exception(
+                "FitsLoaderWorker: failed to load sequence %s",
+                [str(p) for p in self._paths],
+            )
+            raise

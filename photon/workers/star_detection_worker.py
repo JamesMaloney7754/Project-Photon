@@ -50,8 +50,12 @@ class StarDetectionWorker(BaseWorker):
             "StarDetectionWorker: image shape %s, fwhm=%.1f, sigma=%.1f",
             self._image.shape, self._fwhm, self._threshold_sigma,
         )
-        return detect_stars(
-            self._image,
-            fwhm=self._fwhm,
-            threshold_sigma=self._threshold_sigma,
-        )
+        try:
+            return detect_stars(
+                self._image,
+                fwhm=self._fwhm,
+                threshold_sigma=self._threshold_sigma,
+            )
+        except Exception:
+            logger.exception("StarDetectionWorker: star detection failed")
+            raise
