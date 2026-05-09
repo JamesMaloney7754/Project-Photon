@@ -4,6 +4,14 @@ import sys
 
 __version__ = "0.1.0"
 
+# Opt into photutils 3.0 column names (x_centroid / y_centroid) globally.
+# On photutils < 3.0 this suppresses the deprecation warning; on 3.0+ it's a no-op.
+try:
+    import photutils.utils.colnames as _phu_colnames
+    _phu_colnames.use_future_column_names()
+except (ImportError, AttributeError):
+    pass
+
 # ---------------------------------------------------------------------------
 # PySide6 compatibility shims
 #

@@ -48,7 +48,7 @@ from photon.workers.star_detection_worker import StarDetectionWorker
 logger = logging.getLogger(__name__)
 
 
-# ── Logo widget (painted hexagon + wordmark) ────────────────────────────────────
+# ── Logo widget (painted hexagon + wordmark) ───────────────────────────────────────────
 
 
 class _LogoWidget(QWidget):
@@ -93,7 +93,7 @@ class _LogoWidget(QWidget):
         painter.end()
 
 
-# ── Settings gear button ────────────────────────────────────────────────────────
+# ── Settings gear button ──────────────────────────────────────────────────────────
 
 
 class _GearButton(QToolButton):
@@ -129,7 +129,7 @@ class _GearButton(QToolButton):
         painter.end()
 
 
-# ── MainWindow ─────────────────────────────────────────────────────────────────
+# ── MainWindow ─────────────────────────────────────────────────────────────────────
 
 
 class MainWindow(QMainWindow):
@@ -190,7 +190,7 @@ class MainWindow(QMainWindow):
         root_layout.setContentsMargins(0, 0, 0, 0)
         root_layout.setSpacing(0)
 
-        # ── Top bar ───────────────────────────────────────────────────────
+        # ── Top bar ─────────────────────────────────────────────────────
         top_bar = self._build_top_bar()
         root_layout.addWidget(top_bar)
 
@@ -233,7 +233,7 @@ class MainWindow(QMainWindow):
 
         root_layout.addWidget(splitter_wrapper, 1)
 
-        # ── Bottom bar ────────────────────────────────────────────────────
+        # ── Bottom bar ──────────────────────────────────────────────────
         root_layout.addWidget(self._bottom)
 
         self.setCentralWidget(bg)
@@ -438,7 +438,7 @@ class MainWindow(QMainWindow):
         msg.setIcon(QMessageBox.Icon.Information)
         msg.setText(
             "Local plate solving requires the astrometry.net solver to be installed.\n\n"
-            "You can configure this in Settings \u2192 Plate Solving, "
+            "You can configure this in Settings → Plate Solving, "
             "or use the Astrometry.net cloud API instead."
         )
         msg.setStandardButtons(QMessageBox.StandardButton.Ok)
@@ -607,8 +607,8 @@ class MainWindow(QMainWindow):
         if mode == "select_target":
             row = snap_to_nearest_star(x, y, stars) if stars is not None else None
             if row is not None and stars is not None:
-                snap_x = float(stars["xcentroid"][row])
-                snap_y = float(stars["ycentroid"][row])
+                snap_x = float(stars["x_centroid"][row])
+                snap_y = float(stars["y_centroid"][row])
                 self.session.target_xy = (snap_x, snap_y)
                 self.session.target_star_row = row
             else:
@@ -624,8 +624,8 @@ class MainWindow(QMainWindow):
         elif mode == "select_comparison":
             row = snap_to_nearest_star(x, y, stars) if stars is not None else None
             if row is not None and stars is not None:
-                snap_x = float(stars["xcentroid"][row])
-                snap_y = float(stars["ycentroid"][row])
+                snap_x = float(stars["x_centroid"][row])
+                snap_y = float(stars["y_centroid"][row])
                 pos = (snap_x, snap_y)
             else:
                 pos = (x, y)
@@ -775,7 +775,7 @@ class MainWindow(QMainWindow):
             max_stars=sm.get("photometry/max_comparison_stars"),
         )
         xys = [
-            (float(comps["xcentroid"][i]), float(comps["ycentroid"][i]))
+            (float(comps["x_centroid"][i]), float(comps["y_centroid"][i]))
             for i in range(len(comps))
         ]
         self.session.comparison_xys = xys

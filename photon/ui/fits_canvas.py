@@ -37,7 +37,7 @@ from photon.utils.stretch import stretch_image
 
 logger = logging.getLogger(__name__)
 
-# ── Empty-state widget ─────────────────────────────────────────────────────────
+# ── Empty-state widget ──────────────────────────────────────────────────────────
 
 
 class _EmptyStateWidget(QWidget):
@@ -73,7 +73,7 @@ class _EmptyStateWidget(QWidget):
         painter.setBrush(Qt.BrushStyle.NoBrush)
         painter.drawRoundedRect(rect, 12, 12)
 
-        # ── Scan shimmer band ─────────────────────────────────────────────
+        # ── Scan shimmer band ────────────────────────────────────────
         diag = math.sqrt(w * w + h * h)
         band_w = diag * 0.30
         t = self._scan_offset
@@ -98,7 +98,7 @@ class _EmptyStateWidget(QWidget):
         cx = w // 2
         cy = h // 2 - 20
 
-        # ── Telescope icon ────────────────────────────────────────────────
+        # ── Telescope icon ────────────────────────────────────────────
         icon_pen = QPen(QColor(Colors.TEXT_DISABLED), 2, Qt.PenStyle.SolidLine)
         icon_pen.setCapStyle(Qt.PenCapStyle.RoundCap)
         painter.setPen(icon_pen)
@@ -122,7 +122,7 @@ class _EmptyStateWidget(QWidget):
         # Tripod spreader ring
         painter.drawLine(cx - 18, cy + 30, cx + 18, cy + 30)
 
-        # ── Primary text ──────────────────────────────────────────────────
+        # ── Primary text ──────────────────────────────────────────────
         font1 = QFont("Inter")
         font1.setPixelSize(Typography.SIZE_MD)
         font1.setWeight(QFont.Weight(Typography.WEIGHT_MEDIUM))
@@ -135,7 +135,7 @@ class _EmptyStateWidget(QWidget):
             "Drop FITS files here",
         )
 
-        # ── Sub-text ──────────────────────────────────────────────────────
+        # ── Sub-text ──────────────────────────────────────────────────
         font2 = QFont("Inter")
         font2.setPixelSize(Typography.SIZE_XS)
         painter.setFont(font2)
@@ -190,7 +190,7 @@ class FitsCanvas(QWidget):
         self._annulus_inner:   float = 12.0
         self._annulus_outer:   float = 20.0
 
-        # ── Matplotlib figure ─────────────────────────────────────────────
+        # ── Matplotlib figure ───────────────────────────────────────────
         bg = Colors.CANVAS_BG
         self._figure = Figure(facecolor=bg, tight_layout=True)
         self._ax = self._figure.add_subplot(111)
@@ -216,7 +216,7 @@ class FitsCanvas(QWidget):
         self._mpl_anim.setDuration(400)
         self._mpl_wrapper = mpl_wrapper
 
-        # ── Stacked widget ────────────────────────────────────────────────
+        # ── Stacked widget ────────────────────────────────────────────
         self._stack = QStackedWidget()
         self._stack.addWidget(_EmptyStateWidget())
         self._stack.addWidget(mpl_wrapper)
@@ -335,7 +335,7 @@ class FitsCanvas(QWidget):
         if wcs is None or self._image_obj is None:
             return
 
-        # ── Helper: RA/Dec columns → pixel coords ─────────────────────────
+        # ── Helper: RA/Dec columns → pixel coords ──────────────────────────────
         def _to_pixels(ra_arr: Any, dec_arr: Any) -> tuple[np.ndarray, np.ndarray]:
             from astropy.coordinates import SkyCoord
             import astropy.units as au
@@ -343,7 +343,7 @@ class FitsCanvas(QWidget):
             xs, ys = wcs.world_to_pixel(coords)
             return np.asarray(xs, dtype=float), np.asarray(ys, dtype=float)
 
-        # ── Image bounds for visibility check ─────────────────────────────
+        # ── Image bounds for visibility check ───────────────────────────────
         img = self._image_obj.get_array()
         h, w = img.shape[:2]
 
@@ -397,7 +397,7 @@ class FitsCanvas(QWidget):
             except Exception as exc:
                 logger.debug("VSX overlay failed: %s", exc)
 
-        # ── SIMBAD — cyan diamonds with names ─────────────────────────────
+        # ── SIMBAD — cyan diamonds with names ───────────────────────────────
         simbad = catalog_results.get("simbad")
         if simbad is not None and len(simbad) > 0 and "ra" in simbad.colnames:
             try:
@@ -457,7 +457,7 @@ class FitsCanvas(QWidget):
             except Exception as exc:
                 logger.debug("SIMBAD overlay failed: %s", exc)
 
-        # ── Legend ────────────────────────────────────────────────────────
+        # ── Legend ──────────────────────────────────────────────────────────────
         if legend_handles:
             leg = self._ax.legend(
                 legend_handles, legend_labels,
@@ -517,8 +517,8 @@ class FitsCanvas(QWidget):
             self._mpl_canvas.draw_idle()
             return
 
-        xs = np.asarray(stars["xcentroid"], dtype=float)
-        ys = np.asarray(stars["ycentroid"], dtype=float)
+        xs = np.asarray(stars["x_centroid"], dtype=float)
+        ys = np.asarray(stars["y_centroid"], dtype=float)
 
         # All detected stars: small open circles
         sc = self._ax.scatter(
