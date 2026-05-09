@@ -58,3 +58,4 @@ htmlcov/
 assets/icon.ico
 
 # PyInstaller working directories (dist/ and build/ already covered above)
+uv.lock
