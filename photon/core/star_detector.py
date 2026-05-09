@@ -39,7 +39,7 @@ def detect_stars(
     Returns
     -------
     astropy.table.Table
-        Table with columns ``id``, ``xcentroid``, ``ycentroid``,
+        Table with columns ``id``, ``x_centroid``, ``y_centroid``,
         ``peak``, ``flux``, ``sharpness``, ``roundness1``, ``roundness2``.
         Empty table (zero rows, same columns) when no sources are found.
     """
@@ -59,13 +59,13 @@ def detect_stars(
 
     if sources is None or len(sources) == 0:
         return Table(
-            names=["id", "xcentroid", "ycentroid", "peak", "flux", "sharpness",
+            names=["id", "x_centroid", "y_centroid", "peak", "flux", "sharpness",
                    "roundness1", "roundness2"],
             dtype=[int, float, float, float, float, float, float, float],
         )
 
     # Ensure consistent column subset and sort brightest first
-    keep = ["id", "xcentroid", "ycentroid", "peak", "flux", "sharpness",
+    keep = ["id", "x_centroid", "y_centroid", "peak", "flux", "sharpness",
             "roundness1", "roundness2"]
     out = sources[[c for c in keep if c in sources.colnames]]
     out.sort("flux")
@@ -88,8 +88,8 @@ def select_comparison_stars(
     Applies these filters in order:
 
     1. Exclude any star within *exclusion_radius_px* of the target position.
-    2. Exclude stars within 20 px of the image edge (using ``xcentroid`` /
-       ``ycentroid``; image size is inferred from ``xcentroid.max() + 20``).
+    2. Exclude stars within 20 px of the image edge (using ``x_centroid`` /
+       ``y_centroid``; image size is inferred from ``x_centroid.max() + 20``).
     3. Exclude stars with ``peak`` flux > 0.8 × ``peak.max()`` (avoid
        saturated sources).
     4. Keep at most *max_stars* brightest remaining stars.
@@ -118,8 +118,8 @@ def select_comparison_stars(
     if len(all_stars) == 0:
         return all_stars
 
-    xs = np.asarray(all_stars["xcentroid"], dtype=float)
-    ys = np.asarray(all_stars["ycentroid"], dtype=float)
+    xs = np.asarray(all_stars["x_centroid"], dtype=float)
+    ys = np.asarray(all_stars["y_centroid"], dtype=float)
     peaks = np.asarray(all_stars["peak"], dtype=float)
     fluxes = np.asarray(all_stars["flux"], dtype=float)
 
@@ -181,8 +181,8 @@ def snap_to_nearest_star(
     if stars is None or len(stars) == 0:
         return None
 
-    xs = np.asarray(stars["xcentroid"], dtype=float)
-    ys = np.asarray(stars["ycentroid"], dtype=float)
+    xs = np.asarray(stars["x_centroid"], dtype=float)
+    ys = np.asarray(stars["y_centroid"], dtype=float)
     dists = np.sqrt((xs - click_x) ** 2 + (ys - click_y) ** 2)
     idx = int(np.argmin(dists))
     if dists[idx] <= max_distance_px:

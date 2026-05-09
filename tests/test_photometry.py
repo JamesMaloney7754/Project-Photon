@@ -51,7 +51,7 @@ def test_detect_stars_returns_table() -> None:
     stars = detect_stars(image, fwhm=3.0, threshold_sigma=3.0)
 
     assert len(stars) >= 3, f"Expected ≥3 sources, got {len(stars)}"
-    for col in ("xcentroid", "ycentroid", "flux"):
+    for col in ("x_centroid", "y_centroid", "flux"):
         assert col in stars.colnames, f"Missing column '{col}'"
 
 
@@ -89,8 +89,8 @@ def test_select_comparison_excludes_target() -> None:
     # No comparison should be within 15px of the target
     import numpy as np
     if len(comps) > 0:
-        xs = np.asarray(comps["xcentroid"], dtype=float)
-        ys = np.asarray(comps["ycentroid"], dtype=float)
+        xs = np.asarray(comps["x_centroid"], dtype=float)
+        ys = np.asarray(comps["y_centroid"], dtype=float)
         dists = np.sqrt((xs - target_x) ** 2 + (ys - target_y) ** 2)
         assert np.all(dists > 15.0), (
             f"Comparison star too close to target: min dist = {dists.min():.1f} px"
@@ -152,7 +152,7 @@ def test_settings_manager_defaults() -> None:
 
     # Also verify a string default
     backend = sm.get("platesolve/backend")
-    assert backend == "local", f"Expected 'local', got {backend!r}"
+    assert backend == "astap", f"Expected 'astap', got {backend!r}"
 
     # Reset singleton after test
     sm_mod._instance = None
@@ -180,8 +180,8 @@ def test_snap_to_nearest_star_finds_closest() -> None:
     assert len(stars) >= 2
 
     # Click very close to one detected star
-    xs = list(stars["xcentroid"])
-    ys = list(stars["ycentroid"])
+    xs = list(stars["x_centroid"])
+    ys = list(stars["y_centroid"])
     target_row = 0
     click_x = xs[target_row] + 2.0   # 2 px offset
     click_y = ys[target_row] + 2.0
