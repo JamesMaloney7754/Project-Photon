@@ -28,7 +28,7 @@ logger = logging.getLogger(__name__)
 _ITEM_HEIGHT = 52
 
 
-# ── Frame item delegate ─────────────────────────────────────────────────────────
+# ── Frame item delegate ─────────────────────────────────────────────────────
 
 
 class _FrameItemDelegate(QStyledItemDelegate):
@@ -49,19 +49,19 @@ class _FrameItemDelegate(QStyledItemDelegate):
         pad_x = 14
         pad_y = 8
 
-        # ── Background ────────────────────────────────────────────────────
+        # ── Background ──────────────────────────────────────────────────
         if is_selected:
             painter.fillRect(rect, QColor(124, 58, 237, 35))   # VIOLET_DIM
         elif is_hovered:
             painter.fillRect(rect, QColor(255, 255, 255, 10))
 
-        # ── Left accent bar (selected only) ───────────────────────────────
+        # ── Left accent bar (selected only) ─────────────────────────────
         if is_selected:
             bar_rect = rect.adjusted(0, 0, 0, 0)
             bar_rect.setWidth(2)
             painter.fillRect(bar_rect, QColor(Colors.VIOLET))
 
-        # ── Line 1 — filename ─────────────────────────────────────────────
+        # ── Line 1 — filename ─────────────────────────────────────────
         font1 = QFont("Inter")
         font1.setPixelSize(Typography.SIZE_BASE)
         font1.setWeight(QFont.Weight(Typography.WEIGHT_MEDIUM))
@@ -76,7 +76,7 @@ class _FrameItemDelegate(QStyledItemDelegate):
             name,
         )
 
-        # ── Line 2 — frame info in gold mono ─────────────────────────────
+        # ── Line 2 — frame info in gold mono ─────────────────────────
         font2 = QFont()
         font2.setFamily(Typography.FONT_MONO)
         font2.setPixelSize(Typography.SIZE_XS)
@@ -94,7 +94,7 @@ class _FrameItemDelegate(QStyledItemDelegate):
             secondary,
         )
 
-        # ── Bottom separator ──────────────────────────────────────────────
+        # ── Bottom separator ──────────────────────────────────────────
         painter.setPen(QColor(Colors.BORDER_SUBTLE))
         painter.drawLine(pad_x, rect.bottom(), rect.right() - pad_x, rect.bottom())
 
@@ -106,7 +106,7 @@ class _FrameItemDelegate(QStyledItemDelegate):
         return QSize(option.rect.width(), _ITEM_HEIGHT)
 
 
-# ── Stat card widget ────────────────────────────────────────────────────────────
+# ── Stat card widget ──────────────────────────────────────────────────────
 
 
 class _StatCard(QWidget):
@@ -164,7 +164,7 @@ class _StatCard(QWidget):
         self._value_lbl.setText("—")
 
 
-# ── SessionSidebar ──────────────────────────────────────────────────────────────
+# ── SessionSidebar ────────────────────────────────────────────────────────
 
 
 class SessionSidebar(GlassPanel):
@@ -195,7 +195,7 @@ class SessionSidebar(GlassPanel):
         layout.setContentsMargins(0, 12, 0, 12)
         layout.setSpacing(0)
 
-        # ── Header row: dot + "Session" + "+" button ──────────────────────
+        # ── Header row: dot + "Session" + "+" button ────────────────────
         header_row = QWidget()
         header_row.setStyleSheet("background-color: transparent;")
         hrow_layout = QHBoxLayout(header_row)
@@ -261,7 +261,7 @@ class SessionSidebar(GlassPanel):
 
         layout.addSpacing(8)
 
-        # ── Metadata stat cards (2-column grid) ───────────────────────────
+        # ── Metadata stat cards (2-column grid) ─────────────────────────
         meta_container = QWidget()
         meta_container.setStyleSheet("background-color: transparent;")
         meta_grid = QGridLayout(meta_container)
@@ -286,7 +286,7 @@ class SessionSidebar(GlassPanel):
         layout.addWidget(meta_container)
         layout.addSpacing(8)
 
-        # ── Open Sequence button ──────────────────────────────────────────
+        # ── Open Sequence button ────────────────────────────────────────
         btn_container = QWidget()
         btn_container.setStyleSheet("background-color: transparent;")
         btn_layout = QHBoxLayout(btn_container)
@@ -314,27 +314,29 @@ class SessionSidebar(GlassPanel):
         headers : list of astropy.io.fits.Header
             Per-frame FITS headers.
         """
-        from photon.core.session import PhotonSession
-
-        if not isinstance(session, PhotonSession):
+        if not hasattr(session, "fits_paths") or not hasattr(session, "image_stack"):
+            logger.warning("SessionSidebar.populate: invalid session object; skipping")
             return
 
         self.file_list.clear()
 
         for i, path in enumerate(session.fits_paths):
-            header = headers[i] if i < len(headers) else {}
-            time_str = ""
             try:
-                from photon.core.fits_loader import get_observation_times
-                t = get_observation_times([header])
-                time_str = t[0].isot if len(t) > 0 else ""
-            except Exception:
-                pass
+                header = headers[i] if i < len(headers) else {}
+                time_str = ""
+                try:
+                    from photon.core.fits_loader import get_observation_times
+                    t = get_observation_times([header])
+                    time_str = t[0].isot if len(t) > 0 else ""
+                except Exception:
+                    pass
 
-            secondary = f"Frame {i}" + (f"  ·  {time_str}" if time_str else "")
-            item = QListWidgetItem(path.name)
-            item.setData(Qt.ItemDataRole.UserRole, secondary)
-            self.file_list.addItem(item)
+                secondary = f"Frame {i}" + (f"  ·  {time_str}" if time_str else "")
+                item = QListWidgetItem(path.name)
+                item.setData(Qt.ItemDataRole.UserRole, secondary)
+                self.file_list.addItem(item)
+            except Exception:
+                logger.exception("SessionSidebar.populate: error adding item %d", i)
 
         if session.image_stack is not None:
             n, h, w = session.image_stack.shape
