@@ -105,7 +105,7 @@ class ASTAPSolver(PlateSolver):
         if not binary_path:
             raise PlateSolverError(
                 "ASTAP binary path is not set. "
-                "Configure it in Settings \u2192 Plate Solving."
+                "Configure it in Settings → Plate Solving."
             )
         self._binary        = binary_path
         self._search_radius = search_radius
@@ -131,17 +131,18 @@ class ASTAPSolver(PlateSolver):
             ``(True, version_string)`` on success, ``(False, "")`` on any
             failure (binary not found, non-zero exit, or timeout).
         """
+        path = binary_path or "astap"
         try:
             result = subprocess.run(
-                [binary_path, "-version"],
+                [path, "-version"],
                 capture_output=True,
                 text=True,
                 timeout=5,
             )
-            if result.returncode == 0:
-                version = (result.stdout or result.stderr or "").strip()
-                return True, version
-            return False, ""
+            # ASTAP may return non-zero for -version on some builds; any execution
+            # means the binary is present and functional.
+            version = (result.stdout or result.stderr or "").strip()
+            return True, version
         except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
             return False, ""
 
