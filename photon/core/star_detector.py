@@ -50,12 +50,31 @@ def detect_stars(
     if image.ndim != 2:
         raise ValueError(f"detect_stars requires a 2-D array; got shape {image.shape}")
 
-    _, median, std = sigma_clipped_stats(image, sigma=3.0)
+    # Downsample large images to cap detection time on high-res cameras.
+    _MAX_DIM = 1024
+    h, w = image.shape
+    scale = 1.0
+    if max(h, w) > _MAX_DIM:
+        scale = _MAX_DIM / max(h, w)
+        try:
+            from scipy.ndimage import zoom as _zoom
+            detection_image = _zoom(image, scale, order=1)
+        except ImportError:
+            detection_image = image
+            scale = 1.0
+        logger.debug(
+            "detect_stars: downsampled %dx%d → %dx%d (scale=%.3f)",
+            h, w, int(h * scale), int(w * scale), scale,
+        )
+    else:
+        detection_image = image
+
+    _, median, std = sigma_clipped_stats(detection_image, sigma=3.0)
     if std <= 0.0:
         std = 1.0
 
-    daofind = DAOStarFinder(fwhm=fwhm, threshold=threshold_sigma * std)
-    sources = daofind(image - median)
+    daofind = DAOStarFinder(fwhm=fwhm * scale, threshold=threshold_sigma * std)
+    sources = daofind(detection_image - median)
 
     if sources is None or len(sources) == 0:
         return Table(
@@ -70,6 +89,12 @@ def detect_stars(
     out = sources[[c for c in keep if c in sources.colnames]]
     out.sort("flux")
     out.reverse()
+
+    # Scale centroid coordinates back to the original image resolution
+    if scale != 1.0:
+        out["x_centroid"] = out["x_centroid"] / scale
+        out["y_centroid"] = out["y_centroid"] / scale
+
     logger.debug("detect_stars: found %d sources (fwhm=%.1f, sigma=%.1f)",
                  len(out), fwhm, threshold_sigma)
     return out

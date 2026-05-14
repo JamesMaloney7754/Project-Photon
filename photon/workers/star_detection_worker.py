@@ -46,12 +46,20 @@ class StarDetectionWorker(BaseWorker):
         """
         from photon.core.star_detector import detect_stars
 
-        logger.debug(
-            "StarDetectionWorker: image shape %s, fwhm=%.1f, sigma=%.1f",
+        logger.info(
+            "StarDetectionWorker: starting detection on image %s, fwhm=%.1f, sigma=%.1f",
             self._image.shape, self._fwhm, self._threshold_sigma,
         )
-        return detect_stars(
-            self._image,
-            fwhm=self._fwhm,
-            threshold_sigma=self._threshold_sigma,
-        )
+        try:
+            result = detect_stars(
+                self._image,
+                fwhm=self._fwhm,
+                threshold_sigma=self._threshold_sigma,
+            )
+            logger.info(
+                "StarDetectionWorker: detection complete, %d stars found", len(result)
+            )
+            return result
+        except Exception:
+            logger.exception("StarDetectionWorker: star detection failed")
+            raise
