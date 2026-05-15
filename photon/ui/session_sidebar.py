@@ -14,6 +14,7 @@ from PySide6.QtWidgets import (
     QListWidgetItem,
     QPushButton,
     QSizePolicy,
+    QStyle,
     QStyledItemDelegate,
     QStyleOptionViewItem,
     QVBoxLayout,
@@ -42,8 +43,8 @@ class _FrameItemDelegate(QStyledItemDelegate):
     ) -> None:
         painter.save()
 
-        is_selected = bool(option.state & 0x0002)   # QStyle.State_Selected
-        is_hovered  = bool(option.state & 0x2000)   # QStyle.State_MouseOver
+        is_selected = bool(option.state & QStyle.StateFlag.State_Selected)
+        is_hovered  = bool(option.state & QStyle.StateFlag.State_MouseOver)
 
         rect = option.rect
         pad_x = 14

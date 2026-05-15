@@ -152,7 +152,7 @@ def test_settings_manager_defaults() -> None:
 
     # Also verify a string default
     backend = sm.get("platesolve/backend")
-    assert backend == "astap", f"Expected 'astap', got {backend!r}"
+    assert backend == "local", f"Expected 'local', got {backend!r}"
 
     # Reset singleton after test
     sm_mod._instance = None

@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
-from PySide6.QtCore import Q_ARG, QMetaObject, QPropertyAnimation, QThreadPool, QTimer, Qt
+from PySide6.QtCore import Q_ARG, QMetaObject, QPoint, QPropertyAnimation, QThreadPool, QTimer, Qt
 from PySide6.QtGui import (
     QColor,
     QFont,
@@ -51,7 +51,7 @@ from photon.workers.star_detection_worker import StarDetectionWorker
 logger = logging.getLogger(__name__)
 
 
-# ── Diagnostics log handler + dialog ─────────────────────────────────────────────────
+# ── Diagnostics log handler + dialog ────────────────────────────────────────────────
 
 
 class QtLogHandler(logging.Handler):
@@ -134,7 +134,7 @@ class _DiagnosticsDialog(QDialog):
 
 
 class _LogoWidget(QWidget):
-    """Paints a violet hexagon followed by the "PHOTON" wordmark."""
+    """Paints a violet hexagon followed by the \"PHOTON\" wordmark."""
 
     _SIZE = 14  # hexagon apothem in px
 
@@ -152,16 +152,14 @@ class _LogoWidget(QWidget):
         cx, cy = self._SIZE + 2, self.height() // 2
         r = self._SIZE
         # Six-sided polygon
-        pts = QPolygon()
-        for k in range(6):
-            angle = math.radians(60 * k - 30)
-            pts.append_point(
-                int(cx + r * math.cos(angle)),
-                int(cy + r * math.sin(angle)),
-            )
+        points = [
+            QPoint(int(cx + r * math.cos(math.radians(60 * k - 30))),
+                   int(cy + r * math.sin(math.radians(60 * k - 30))))
+            for k in range(6)
+        ]
         painter.setPen(Qt.PenStyle.NoPen)
         painter.setBrush(QColor(Colors.VIOLET))
-        painter.drawPolygon(pts)
+        painter.drawPolygon(QPolygon(points))
 
         # "PHOTON" wordmark
         font = QFont("Inter")
@@ -175,7 +173,7 @@ class _LogoWidget(QWidget):
         painter.end()
 
 
-# ── Settings gear button ──────────────────────────────────────────────────────
+# ── Settings gear button ─────────────────────────────────────────────────────────────
 
 
 class _GearButton(QToolButton):
@@ -211,7 +209,7 @@ class _GearButton(QToolButton):
         painter.end()
 
 
-# ── MainWindow ───────────────────────────────────────────────────────────────────────
+# ── MainWindow ────────────────────────────────────────────────────────────────────────────
 
 
 class MainWindow(QMainWindow):
@@ -275,7 +273,7 @@ class MainWindow(QMainWindow):
         root_layout.setContentsMargins(0, 0, 0, 0)
         root_layout.setSpacing(0)
 
-        # ── Top bar ─────────────────────────────────────────────────────
+        # ── Top bar ─────────────────────────────────────────────────────────────
         top_bar = self._build_top_bar()
         root_layout.addWidget(top_bar)
 
@@ -318,7 +316,7 @@ class MainWindow(QMainWindow):
 
         root_layout.addWidget(splitter_wrapper, 1)
 
-        # ── Bottom bar ──────────────────────────────────────────────
+        # ── Bottom bar ────────────────────────────────────────────────
         root_layout.addWidget(self._bottom)
 
         self.setCentralWidget(bg)
