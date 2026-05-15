@@ -24,6 +24,7 @@ import abc
 import logging
 import os
 import subprocess
+import sys
 import tempfile
 from pathlib import Path
 from typing import Callable, Optional
@@ -76,7 +77,7 @@ class PlateSolver(abc.ABC):
         """
 
 
-# ── ASTAPSolver ───────────────────────────────────────────────────────────────
+# ── ASTAPSolver ─────────────────────────────────────────────────────────────────────────────────
 
 
 class ASTAPSolver(PlateSolver):
@@ -116,35 +117,47 @@ class ASTAPSolver(PlateSolver):
     # ------------------------------------------------------------------
 
     @staticmethod
-    def detect_installation(binary_path: str = "astap") -> tuple[bool, str]:
-        """Probe *binary_path* by running ``astap -version``.
+    def detect_installation(binary_path: str = "") -> tuple[bool, str]:
+        """Check whether ASTAP is present using a file-existence test only.
+
+        Never runs the ASTAP binary — ASTAP opens its GUI window when invoked
+        with unrecognised arguments on some builds, which would surprise the
+        user on every Photon launch.
 
         Parameters
         ----------
         binary_path : str
-            Path to the ASTAP executable.  Defaults to ``"astap"`` so that
-            PATH-installed binaries are found automatically.
+            Path to the ASTAP executable.  When empty, PATH and common Windows
+            install locations are searched.
 
         Returns
         -------
         tuple[bool, str]
-            ``(True, version_string)`` on success, ``(False, "")`` on any
-            failure (binary not found, non-zero exit, or timeout).
+            ``(True, description)`` when found, ``(False, "")`` otherwise.
         """
-        path = binary_path or "astap"
-        try:
-            result = subprocess.run(
-                [path, "-version"],
-                capture_output=True,
-                text=True,
-                timeout=5,
-            )
-            # ASTAP may return non-zero for -version on some builds; any execution
-            # means the binary is present and functional.
-            version = (result.stdout or result.stderr or "").strip()
-            return True, version
-        except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
+        import shutil
+
+        path_to_check = (binary_path or "").strip().strip('"').strip("'")
+
+        if not path_to_check:
+            # Search PATH first (Linux/macOS installs, or Windows if in PATH)
+            found_via_which = shutil.which("astap")
+            if found_via_which:
+                return True, f"Found at {found_via_which}"
+            # Common Windows installer locations
+            _WIN_DEFAULTS = [
+                r"C:\Program Files\astap\astap.exe",
+                r"C:\Program Files (x86)\astap\astap.exe",
+            ]
+            for p in _WIN_DEFAULTS:
+                if Path(p).exists():
+                    return True, f"Found at {p}"
             return False, ""
+
+        # Specific path given — check it exists without executing anything
+        if Path(path_to_check).exists():
+            return True, f"Found at {path_to_check}"
+        return False, ""
 
     # ------------------------------------------------------------------
     # solve()
@@ -189,7 +202,7 @@ class ASTAPSolver(PlateSolver):
             output_prefix = os.path.join(tmpdir, "output")
             output_wcs   = output_prefix + ".wcs"
 
-            # ── 1. Write temp FITS ────────────────────────────────────────
+            # ── 1. Write temp FITS ────────────────────────────────────────────
             if isinstance(header, astrofits.Header):
                 hdr = header.copy()
             else:
@@ -199,7 +212,7 @@ class ASTAPSolver(PlateSolver):
             hdu.writeto(input_fits, overwrite=True)
             _emit(f"Wrote temp FITS: {input_fits}")
 
-            # ── 2. Build command ──────────────────────────────────────────
+            # ── 2. Build command ──────────────────────────────────────────────
             cmd = [
                 self._binary,
                 "-f",  input_fits,
@@ -210,13 +223,17 @@ class ASTAPSolver(PlateSolver):
             ]
             _emit(f"Running: {' '.join(cmd)}")
 
-            # ── 3. Run ASTAP, stream stdout ───────────────────────────────
+            # ── 3. Run ASTAP, stream stdout ───────────────────────────────────────
+            _popen_kw: dict = {}
+            if sys.platform == "win32":
+                _popen_kw["creationflags"] = 0x08000000  # CREATE_NO_WINDOW
             try:
                 proc = subprocess.Popen(
                     cmd,
                     stdout=subprocess.PIPE,
                     stderr=subprocess.PIPE,
                     text=True,
+                    **_popen_kw,
                 )
             except FileNotFoundError as exc:
                 raise PlateSolverError(
@@ -239,7 +256,7 @@ class ASTAPSolver(PlateSolver):
                     + "".join(stderr_buf)
                 )
 
-            # ── 4. Read .wcs output ───────────────────────────────────────
+            # ── 4. Read .wcs output ─────────────────────────────────────────────
             if not os.path.isfile(output_wcs):
                 raise PlateSolverError(
                     "ASTAP completed but produced no .wcs output file. "
@@ -257,7 +274,7 @@ class ASTAPSolver(PlateSolver):
                 ) from exc
 
 
-# ── LocalAstrometrySolver ──────────────────────────────────────────────────────
+# ── LocalAstrometrySolver ──────────────────────────────────────────────────────────────────────────────
 
 
 class LocalAstrometrySolver(PlateSolver):
@@ -372,7 +389,7 @@ class LocalAstrometrySolver(PlateSolver):
             if progress_callback is not None:
                 progress_callback(msg.rstrip())
 
-        # ── 1. Write image to a temp FITS file ───────────────────────────
+        # ── 1. Write image to a temp FITS file ───────────────────────────────────
         with tempfile.TemporaryDirectory() as tmpdir:
             input_path  = os.path.join(tmpdir, "input.fits")
             output_wcs  = os.path.join(tmpdir, "input.wcs")
@@ -386,7 +403,7 @@ class LocalAstrometrySolver(PlateSolver):
             hdu.writeto(input_path, overwrite=True)
             _emit(f"Wrote temp FITS to {input_path}")
 
-            # ── 2. Build command ──────────────────────────────────────────
+            # ── 2. Build command ──────────────────────────────────────────────
             cmd = [
                 self._binary,
                 "--no-plots",
@@ -416,13 +433,17 @@ class LocalAstrometrySolver(PlateSolver):
             cmd.append(input_path)
             _emit(f"Running: {' '.join(cmd)}")
 
-            # ── 3. Run solve-field, stream stdout ─────────────────────────
+            # ── 3. Run solve-field, stream stdout ─────────────────────────────────
+            _popen_kw2: dict = {}
+            if sys.platform == "win32":
+                _popen_kw2["creationflags"] = 0x08000000  # CREATE_NO_WINDOW
             try:
                 proc = subprocess.Popen(
                     cmd,
                     stdout=subprocess.PIPE,
                     stderr=subprocess.PIPE,
                     text=True,
+                    **_popen_kw2,
                 )
             except FileNotFoundError as exc:
                 raise PlateSolverError(
@@ -444,7 +465,7 @@ class LocalAstrometrySolver(PlateSolver):
                     f"solve-field exited with code {proc.returncode}.\n{stderr_str}"
                 )
 
-            # ── 4. Read WCS from output file ──────────────────────────────
+            # ── 4. Read WCS from output file ────────────────────────────────────
             if not os.path.isfile(output_wcs):
                 raise PlateSolverError(
                     "solve-field completed but produced no WCS output file. "
@@ -462,7 +483,7 @@ class LocalAstrometrySolver(PlateSolver):
                 ) from exc
 
 
-# ── AstrometryNetSolver ────────────────────────────────────────────────────────
+# ── AstrometryNetSolver ────────────────────────────────────────────────────────────────────────────────
 
 
 class AstrometryNetSolver(PlateSolver):
@@ -611,7 +632,7 @@ class AstrometryNetSolver(PlateSolver):
                 pass
 
 
-# ── Factory ────────────────────────────────────────────────────────────────────
+# ── Factory ────────────────────────────────────────────────────────────────────────────────────
 
 
 def get_solver() -> PlateSolver:
