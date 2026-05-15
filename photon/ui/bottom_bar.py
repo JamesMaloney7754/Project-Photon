@@ -49,6 +49,7 @@ class _PulseDot(QWidget):
         self.setFixedSize(_DOT_D + 4, _DOT_D + 4)
         self._alpha: int = 255
         self._loaded: bool = False
+        self._warning: bool = False
 
         self._anim = QPropertyAnimation(self, b"dot_alpha", self)
         self._anim.setStartValue(255)
@@ -63,10 +64,17 @@ class _PulseDot(QWidget):
         self._loaded = loaded
         self.update()
 
+    def set_warning(self, warning: bool) -> None:
+        """Switch dot to amber warning color."""
+        self._warning = warning
+        self.update()
+
     def paintEvent(self, _event: object) -> None:  # type: ignore[override]
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        if self._loaded:
+        if self._warning:
+            color = QColor(245, 158, 11, self._alpha)  # Colors.GOLD amber
+        elif self._loaded:
             color = QColor(16, 185, 129, self._alpha)  # Colors.SUCCESS
         else:
             color = QColor(45, 63, 92, self._alpha)    # Colors.TEXT_DISABLED
@@ -102,7 +110,7 @@ class BottomBarWidget(QWidget):
         layout.setContentsMargins(14, 0, 14, 0)
         layout.setSpacing(8)
 
-        # ── Left: pulsing dot + status label ─────────────────────────────
+        # ── Left: pulsing dot + status label ─────────────────────
         self._dot = _PulseDot(self)
         layout.addWidget(self._dot, 0, Qt.AlignmentFlag.AlignVCenter)
 
@@ -115,7 +123,7 @@ class BottomBarWidget(QWidget):
 
         layout.addStretch(1)
 
-        # ── Center: frame scrubber ────────────────────────────────────────
+        # ── Center: frame scrubber ────────────────────────────
         self._scrubber_section = QWidget()
         self._scrubber_section.setStyleSheet("background-color: transparent;")
         sc_layout = QHBoxLayout(self._scrubber_section)
@@ -164,7 +172,7 @@ class BottomBarWidget(QWidget):
 
         layout.addStretch(1)
 
-        # ── Right: progress bar ───────────────────────────────────────────
+        # ── Right: progress bar ───────────────────────────────
         self._progress = QProgressBar()
         self._progress.setFixedWidth(120)
         self._progress.setFixedHeight(3)
@@ -245,6 +253,10 @@ class BottomBarWidget(QWidget):
         self._frame_lbl.setText("0")
         self._dot.set_loaded(n_frames > 0)
         self._scrubber_section.setEnabled(n_frames > 0)
+
+    def set_dot_warning(self, warning: bool) -> None:
+        """Set the pulsing dot to amber warning color."""
+        self._dot.set_warning(warning)
 
     def set_frame(self, index: int) -> None:
         """Move the scrubber to *index* without emitting :attr:`frame_scrubbed`.

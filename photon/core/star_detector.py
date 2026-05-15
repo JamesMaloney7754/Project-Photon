@@ -62,7 +62,7 @@ def detect_stars(
         except ImportError:
             detection_image = image
             scale = 1.0
-        logger.debug(
+        logger.info(
             "detect_stars: downsampled %dx%d → %dx%d (scale=%.3f)",
             h, w, int(h * scale), int(w * scale), scale,
         )
@@ -77,6 +77,10 @@ def detect_stars(
     sources = daofind(detection_image - median)
 
     if sources is None or len(sources) == 0:
+        logger.warning(
+            "detect_stars: no sources found (fwhm=%.1f, sigma=%.1f, std=%.2f)",
+            fwhm, threshold_sigma, std,
+        )
         return Table(
             names=["id", "x_centroid", "y_centroid", "peak", "flux", "sharpness",
                    "roundness1", "roundness2"],
@@ -95,8 +99,8 @@ def detect_stars(
         out["x_centroid"] = out["x_centroid"] / scale
         out["y_centroid"] = out["y_centroid"] / scale
 
-    logger.debug("detect_stars: found %d sources (fwhm=%.1f, sigma=%.1f)",
-                 len(out), fwhm, threshold_sigma)
+    logger.info("detect_stars: found %d sources (fwhm=%.1f, sigma=%.1f)",
+                len(out), fwhm, threshold_sigma)
     return out
 
 

@@ -16,13 +16,15 @@ logger = logging.getLogger(__name__)
 
 def main() -> None:
     """Launch the Photon desktop application."""
-    # ── Crash logging — must be set up before anything else ───────────────
-    log_path = Path.home() / "photon_crash.log"
-    logging.basicConfig(
-        filename=str(log_path),
-        level=logging.DEBUG,
-        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
-    )
+    # ── Logging setup — file handler first so crashes are always captured ──
+    _fmt = logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s")
+    root_logger = logging.getLogger()
+    root_logger.setLevel(logging.DEBUG)
+
+    debug_log_path = Path.home() / "photon_debug.log"
+    _file_handler = logging.FileHandler(str(debug_log_path))
+    _file_handler.setFormatter(_fmt)
+    root_logger.addHandler(_file_handler)
 
     def handle_exception(
         exc_type: type,
@@ -62,6 +64,14 @@ def main() -> None:
     app.setWindowIcon(icon)
 
     window = MainWindow()
+
+    # Attach Qt log handler now that the window (and its log_widget) exists
+    from photon.ui.main_window import QtLogHandler
+    _qt_fmt = logging.Formatter("%(asctime)s %(levelname)s: %(message)s")
+    _qt_handler = QtLogHandler(window.log_widget)
+    _qt_handler.setFormatter(_qt_fmt)
+    root_logger.addHandler(_qt_handler)
+
     window.show()
     sys.exit(app.exec())
 

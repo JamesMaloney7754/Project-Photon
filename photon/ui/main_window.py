@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
-from PySide6.QtCore import QPropertyAnimation, QThreadPool, QTimer, Qt
+from PySide6.QtCore import Q_ARG, QMetaObject, QPropertyAnimation, QThreadPool, QTimer, Qt
 from PySide6.QtGui import (
     QColor,
     QFont,
@@ -16,12 +16,15 @@ from PySide6.QtGui import (
     QShortcut,
 )
 from PySide6.QtWidgets import (
+    QDialog,
     QFileDialog,
     QGraphicsOpacityEffect,
     QHBoxLayout,
     QMainWindow,
     QMenu,
     QMessageBox,
+    QPlainTextEdit,
+    QPushButton,
     QSplitter,
     QStackedWidget,
     QToolButton,
@@ -48,7 +51,86 @@ from photon.workers.star_detection_worker import StarDetectionWorker
 logger = logging.getLogger(__name__)
 
 
-# ── Logo widget (painted hexagon + wordmark) ───────────────────────────────────────────
+# ── Diagnostics log handler + dialog ─────────────────────────────────────────────────
+
+
+class QtLogHandler(logging.Handler):
+    """A logging.Handler that appends formatted records to a QPlainTextEdit."""
+
+    def __init__(self, widget: QPlainTextEdit) -> None:
+        super().__init__()
+        self.widget = widget
+
+    def emit(self, record: logging.LogRecord) -> None:
+        msg = self.format(record)
+        QMetaObject.invokeMethod(
+            self.widget,
+            "appendPlainText",
+            Qt.ConnectionType.QueuedConnection,
+            Q_ARG(str, msg),
+        )
+
+
+class _DiagnosticsDialog(QDialog):
+    """A floating window showing the application log stream."""
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.setWindowTitle("Photon Diagnostics")
+        self.resize(700, 400)
+        self.setWindowFlag(Qt.WindowType.Window)
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(12, 12, 12, 12)
+        layout.setSpacing(8)
+
+        self.text_widget = QPlainTextEdit()
+        self.text_widget.setReadOnly(True)
+        self.text_widget.setMaximumBlockCount(2000)
+        self.text_widget.setStyleSheet(
+            f"QPlainTextEdit {{"
+            f"  background-color: {Colors.CANVAS_BG};"
+            f"  color: {Colors.TEXT_PRIMARY};"
+            f"  font-family: {Typography.FONT_MONO};"
+            f"  font-size: {Typography.SIZE_SM}px;"
+            f"  border: 1px solid {Colors.BORDER};"
+            f"  border-radius: 6px;"
+            f"}}"
+        )
+        layout.addWidget(self.text_widget)
+
+        btn_row = QHBoxLayout()
+        btn_row.setSpacing(8)
+        copy_btn = QPushButton("Copy to Clipboard")
+        copy_btn.clicked.connect(self._copy_to_clipboard)
+        btn_row.addWidget(copy_btn)
+        save_btn = QPushButton("Save Log…")
+        save_btn.clicked.connect(self._save_log)
+        btn_row.addWidget(save_btn)
+        btn_row.addStretch()
+        clear_btn = QPushButton("Clear")
+        clear_btn.clicked.connect(self.text_widget.clear)
+        btn_row.addWidget(clear_btn)
+        layout.addLayout(btn_row)
+
+    def _copy_to_clipboard(self) -> None:
+        from PySide6.QtWidgets import QApplication
+        QApplication.clipboard().setText(self.text_widget.toPlainText())
+
+    def _save_log(self) -> None:
+        path, _ = QFileDialog.getSaveFileName(
+            self, "Save Log", str(Path.home() / "photon_debug.log"),
+            "Text Files (*.log *.txt)"
+        )
+        if path:
+            try:
+                with open(path, "w", encoding="utf-8") as f:
+                    f.write(self.text_widget.toPlainText())
+            except OSError as exc:
+                logger.error("Failed to save log: %s", exc)
+
+
+# ── Logo widget (painted hexagon + wordmark) ───────────────────────────────────────────────
 
 
 class _LogoWidget(QWidget):
@@ -93,7 +175,7 @@ class _LogoWidget(QWidget):
         painter.end()
 
 
-# ── Settings gear button ──────────────────────────────────────────────────────────
+# ── Settings gear button ──────────────────────────────────────────────────────
 
 
 class _GearButton(QToolButton):
@@ -129,7 +211,7 @@ class _GearButton(QToolButton):
         painter.end()
 
 
-# ── MainWindow ─────────────────────────────────────────────────────────────────────
+# ── MainWindow ───────────────────────────────────────────────────────────────────────
 
 
 class MainWindow(QMainWindow):
@@ -161,6 +243,9 @@ class MainWindow(QMainWindow):
         self._build_layout()
         self._connect_signals()
         self._register_shortcuts()
+
+        self._diag_dialog = _DiagnosticsDialog(self)
+        self.log_widget = self._diag_dialog.text_widget
 
         # Defer solver-installation check until after the window is shown
         QTimer.singleShot(500, self._check_solver_installation)
@@ -233,7 +318,7 @@ class MainWindow(QMainWindow):
 
         root_layout.addWidget(splitter_wrapper, 1)
 
-        # ── Bottom bar ──────────────────────────────────────────────────
+        # ── Bottom bar ──────────────────────────────────────────────
         root_layout.addWidget(self._bottom)
 
         self.setCentralWidget(bg)
@@ -308,6 +393,7 @@ class MainWindow(QMainWindow):
         )
         gear_menu.addAction("Open Sequence…", self._open_sequence, "Ctrl+O")
         gear_menu.addAction("Settings…",      self._open_settings,  "Ctrl+,")
+        gear_menu.addAction("View Diagnostics…", self._open_diagnostics)
         gear_menu.addSeparator()
         gear_menu.addAction("Quit", self.close, "Ctrl+Q")
         self._gear_btn.setMenu(gear_menu)
@@ -451,6 +537,10 @@ class MainWindow(QMainWindow):
             self._settings_window = SettingsWindow(self)
         self._settings_window.exec()  # type: ignore[union-attr]
 
+    def _open_diagnostics(self) -> None:
+        self._diag_dialog.show()
+        self._diag_dialog.raise_()
+
     # ------------------------------------------------------------------
     # Loading flow
     # ------------------------------------------------------------------
@@ -514,9 +604,7 @@ class MainWindow(QMainWindow):
             threshold_sigma=sm.get("photometry/detection_threshold_sigma"),
         )
         worker.signals.result.connect(self._on_stars_detected)
-        worker.signals.error.connect(
-            lambda tb: logger.warning("Star detection failed:\n%s", tb)
-        )
+        worker.signals.error.connect(self._on_star_detection_error)
         QThreadPool.globalInstance().start(worker)
 
     def _on_stars_detected(self, stars: object) -> None:
@@ -525,6 +613,11 @@ class MainWindow(QMainWindow):
         n_stars = len(stars) if stars is not None else 0
         self._bottom.set_status(f"Detected {n_stars} stars")
         logger.info("Star detection complete: %d sources", n_stars)
+
+    def _on_star_detection_error(self, tb: str) -> None:
+        logger.warning("Star detection failed:\n%s", tb)
+        self._bottom.set_status("Star detection failed — check diagnostics")
+        self._bottom.set_dot_warning(True)
 
     def _on_error(self, traceback_str: str) -> None:
         last_line = traceback_str.strip().splitlines()[-1]
