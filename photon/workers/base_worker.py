@@ -76,7 +76,7 @@ class BaseWorker(QRunnable):
         """Called by QThreadPool.  Do not override; override :meth:`execute`."""
         try:
             result = self.execute()
-        except Exception as exc:
+        except BaseException as exc:
             tb = traceback.format_exc()
             logger.error("Worker %s raised %s:\n%s", type(self).__name__, exc, tb)
             self.signals.error.emit(tb)

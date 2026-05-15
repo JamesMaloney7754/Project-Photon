@@ -54,7 +54,7 @@ transit parameters — all within a single PySide6 GUI.
 | `photon/__main__.py` | Application entry point; constructs `QApplication` and `MainWindow`. |
 | `photon/core/session.py` | `PhotonSession` and `FitsFrame` dataclasses — the application state model. |
 | `photon/core/fits_loader.py` | Synchronous FITS file loading and validation; returns `FitsFrame`. |
-| `photon/core/plate_solver.py` | Abstract `PlateSolver` interface and `AstrometryNetSolver` implementation. |
+| `photon/core/plate_solver.py` | Abstract `PlateSolver` interface; `ASTAPSolver`, `LocalAstrometrySolver`, `AstrometryNetSolver` implementations; `get_solver()` factory. |
 | `photon/core/catalog.py` | SIMBAD, Gaia DR3, and VSX catalog query functions. |
 | `photon/core/photometry.py` | Aperture photometry using `photutils`. |
 | `photon/core/transit.py` | Transit parameter extraction from detrended light curves. |
@@ -105,6 +105,33 @@ transit parameters — all within a single PySide6 GUI.
 - **Keep fixtures in `tests/conftest.py`.**  Fixtures shared between test files must
   live there, not in individual test modules.
 - **Test file naming:** `test_<module_name>.py` mirroring the source structure.
+
+---
+
+## Plate Solving Backends
+
+Three backends are implemented in `photon/core/plate_solver.py`, selected via
+`platesolve/backend` in settings:
+
+| Backend | Key | Notes |
+|---------|-----|-------|
+| **ASTAP** | `"astap"` | Recommended on Windows — standalone exe, no Cygwin |
+| **Local ANSVR** | `"local"` | Calls `solve-field`; fragile on Windows due to Cygwin |
+| **Cloud** | `"astrometry_net"` | Uses `astroquery.astrometry_net`; requires API key |
+
+### ASTAP details
+
+- `ASTAPSolver` calls `astap.exe` (or `astap` on Linux/macOS) via `subprocess.Popen`.
+- Command: `astap -f {input.fits} -r {search_radius} -z {downsample} -o {prefix} -wcs`
+- On success ASTAP writes `{prefix}.wcs`; the solver reads this with `astropy.wcs.WCS`.
+- `ASTAPSolver.detect_installation(binary_path)` runs `astap -version` and returns
+  `(True, version_str)` or `(False, "")`.
+- Default backend is `"astap"` since v0.4.1.
+
+### ANSVR (local astrometry.net)
+
+- Supported but fragile on Windows because ANSVR wraps a Cygwin environment.
+- Prefer ASTAP on Windows; use ANSVR on Linux/macOS where it installs cleanly.
 
 ---
 

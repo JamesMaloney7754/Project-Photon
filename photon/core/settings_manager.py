@@ -24,7 +24,10 @@ DEFAULTS: dict[str, Any] = {
     "general/recent_directories": [],
 
     # Plate solving
-    "platesolve/backend": "local",
+    "platesolve/backend": "astap",
+    "platesolve/astap_binary_path": "",
+    "platesolve/astap_search_radius": 30,
+    "platesolve/astap_downsample": 0,
     "platesolve/local_binary_path": "",
     "platesolve/index_dir": "",
     "platesolve/astrometry_api_key": "",
