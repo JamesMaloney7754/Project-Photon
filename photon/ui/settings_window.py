@@ -171,7 +171,7 @@ class SettingsWindow(QDialog):
         root.setContentsMargins(0, 0, 0, 0)
         root.setSpacing(0)
 
-        # ── Left navigator ────────────────────────────────────────────────
+        # ── Left navigator ──────────────────────────────────────────────────────────────────
         left_bg = QWidget()
         left_bg.setFixedWidth(160)
         left_bg.setStyleSheet(
@@ -196,7 +196,7 @@ class SettingsWindow(QDialog):
         left_layout.addStretch()
         root.addWidget(left_bg)
 
-        # ── Right: stacked pages ──────────────────────────────────────────
+        # ── Right: stacked pages ──────────────────────────────────────────────────────
         right_wrapper = QWidget()
         right_layout = QVBoxLayout(right_wrapper)
         right_layout.setContentsMargins(0, 0, 0, 0)
@@ -212,7 +212,7 @@ class SettingsWindow(QDialog):
         self._stack.addWidget(self._build_page_export())
         right_layout.addWidget(self._stack, 1)
 
-        # ── Bottom button row ─────────────────────────────────────────────
+        # ── Bottom button row ───────────────────────────────────────────────────────────
         btn_bar = QWidget()
         btn_bar.setStyleSheet(
             f"background-color: {Colors.SURFACE_ALT};"
@@ -294,7 +294,7 @@ class SettingsWindow(QDialog):
     def _build_page_platesolve(self) -> QScrollArea:
         w, v = self._page_container("Plate Solving")
 
-        # ── Backend selection (ASTAP first) ───────────────────────────────
+        # ── Backend selection (ASTAP first) ───────────────────────────────────────
         self._radio_astap  = QRadioButton("ASTAP (recommended for Windows)")
         self._radio_local  = QRadioButton("Local astrometry.net (ANSVR)")
         self._radio_cloud  = QRadioButton("Astrometry.net Cloud")
@@ -304,7 +304,7 @@ class SettingsWindow(QDialog):
         v.addWidget(self._radio_local)
         v.addWidget(self._radio_cloud)
 
-        # ── ASTAP group ───────────────────────────────────────────────────
+        # ── ASTAP group ───────────────────────────────────────────────────────────────────
         self._astap_group = QGroupBox("ASTAP Solver")
         ag = QVBoxLayout(self._astap_group)
 
@@ -348,6 +348,10 @@ class SettingsWindow(QDialog):
         self._astap_test_btn.setFlat(True)
         self._astap_test_btn.clicked.connect(self._test_astap_solver)
         astap_test_row.addWidget(self._astap_test_btn)
+        self._astap_autodetect_btn = QPushButton("Auto-detect")
+        self._astap_autodetect_btn.setFlat(True)
+        self._astap_autodetect_btn.clicked.connect(self._autodetect_astap)
+        astap_test_row.addWidget(self._astap_autodetect_btn)
         self._astap_test_lbl = QLabel()
         self._astap_test_lbl.setStyleSheet("background-color: transparent;")
         self._astap_test_lbl.setVisible(False)
@@ -356,7 +360,7 @@ class SettingsWindow(QDialog):
         ag.addLayout(astap_test_row)
         v.addWidget(self._astap_group)
 
-        # ── Local (ANSVR) group ───────────────────────────────────────────
+        # ── Local (ANSVR) group ───────────────────────────────────────────────────
         self._local_group = QGroupBox("Local astrometry.net (ANSVR)")
         lg = QVBoxLayout(self._local_group)
         self._local_binary_le = QLineEdit()
@@ -398,7 +402,7 @@ class SettingsWindow(QDialog):
         lg.addLayout(test_row)
         v.addWidget(self._local_group)
 
-        # ── Cloud group ───────────────────────────────────────────────────
+        # ── Cloud group ─────────────────────────────────────────────────────────────────
         self._cloud_group = QGroupBox("Astrometry.net Cloud")
         cg = QVBoxLayout(self._cloud_group)
         self._api_key_le = QLineEdit()
@@ -425,7 +429,7 @@ class SettingsWindow(QDialog):
         cg.addWidget(link_lbl)
         v.addWidget(self._cloud_group)
 
-        # ── Scale / timeout (visible for local + cloud only) ──────────────
+        # ── Scale / timeout (visible for local + cloud only) ──────────────────────
         self._scale_timeout_group = QGroupBox("Search parameters")
         stg = QVBoxLayout(self._scale_timeout_group)
         self._scale_low_sb  = _make_spinbox(0.01, 100.0, 0.1,  0.1, " arcsec/px")
@@ -709,20 +713,77 @@ class SettingsWindow(QDialog):
         self._recent_list.clear()
 
     def _test_astap_solver(self) -> None:
+        import sys
+        import shutil
         from photon.core.plate_solver import ASTAPSolver
         binary = self._astap_binary_le.text().strip() or "astap"
-        found, version = ASTAPSolver.detect_installation(binary)
-        if found:
-            label = f"\u2713 {version}" if version else "\u2713 Found"
+        # Check existence without running the binary (ASTAP opens GUI if invoked bare)
+        found, _ = ASTAPSolver.detect_installation(binary)
+        if not found:
+            self._astap_test_lbl.setText("✗ Not found")
+            self._astap_test_lbl.setStyleSheet(
+                f"color: {Colors.DANGER}; background-color: transparent;"
+            )
+            self._astap_test_lbl.setVisible(True)
+            return
+        # Binary exists — try running it with CREATE_NO_WINDOW to get version
+        resolved = shutil.which(binary) or binary
+        try:
+            kwargs: dict = {}
+            if sys.platform == "win32":
+                kwargs["creationflags"] = 0x08000000  # CREATE_NO_WINDOW
+            result = subprocess.run(
+                [resolved, "-version"],
+                capture_output=True, text=True, timeout=3, **kwargs
+            )
+            version = (result.stdout or result.stderr or "").strip().splitlines()[0] if (result.stdout or result.stderr) else ""
+            label = f"✓ {version}" if version else "✓ Found"
             self._astap_test_lbl.setText(label)
             self._astap_test_lbl.setStyleSheet(
                 f"color: {Colors.SUCCESS}; background-color: transparent;"
             )
-        else:
-            self._astap_test_lbl.setText("\u2717 Not found")
+        except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
+            self._astap_test_lbl.setText("✓ Found (could not query version)")
             self._astap_test_lbl.setStyleSheet(
-                f"color: {Colors.DANGER}; background-color: transparent;"
+                f"color: {Colors.SUCCESS}; background-color: transparent;"
             )
+        self._astap_test_lbl.setVisible(True)
+
+    def _autodetect_astap(self) -> None:
+        """Search common install locations for ASTAP and populate the path field."""
+        import shutil
+        from photon.core.plate_solver import ASTAPSolver
+        _candidates = [
+            r"C:\Program Files\astap\astap.exe",
+            r"C:\Program Files (x86)\astap\astap.exe",
+            "/usr/bin/astap",
+            "/usr/local/bin/astap",
+            "/opt/homebrew/bin/astap",
+        ]
+        # Check PATH first
+        via_which = shutil.which("astap")
+        if via_which:
+            self._astap_binary_le.setText(via_which)
+            self._astap_test_lbl.setText("✓ Auto-detected")
+            self._astap_test_lbl.setStyleSheet(
+                f"color: {Colors.SUCCESS}; background-color: transparent;"
+            )
+            self._astap_test_lbl.setVisible(True)
+            return
+        for candidate in _candidates:
+            found, _ = ASTAPSolver.detect_installation(candidate)
+            if found:
+                self._astap_binary_le.setText(candidate)
+                self._astap_test_lbl.setText("✓ Auto-detected")
+                self._astap_test_lbl.setStyleSheet(
+                    f"color: {Colors.SUCCESS}; background-color: transparent;"
+                )
+                self._astap_test_lbl.setVisible(True)
+                return
+        self._astap_test_lbl.setText("✗ Not found")
+        self._astap_test_lbl.setStyleSheet(
+            f"color: {Colors.DANGER}; background-color: transparent;"
+        )
         self._astap_test_lbl.setVisible(True)
 
     def _test_local_solver(self) -> None:
