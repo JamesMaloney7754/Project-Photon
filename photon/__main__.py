@@ -21,6 +21,10 @@ def main() -> None:
     root_logger = logging.getLogger()
     root_logger.setLevel(logging.DEBUG)
 
+    # Keep matplotlib font-scoring messages out of the diagnostic log
+    logging.getLogger('matplotlib').setLevel(logging.WARNING)
+    logging.getLogger('matplotlib.font_manager').setLevel(logging.WARNING)
+
     debug_log_path = Path.home() / "photon_debug.log"
     _file_handler = logging.FileHandler(str(debug_log_path))
     _file_handler.setFormatter(_fmt)
