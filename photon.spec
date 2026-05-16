@@ -11,17 +11,41 @@ To build:
     pyinstaller photon.spec --clean --noconfirm
 """
 
-from PyInstaller.utils.hooks import collect_data_files, collect_submodules
+from PyInstaller.utils.hooks import collect_data_files, collect_submodules, copy_metadata
+
+
+def safe_copy_metadata(pkg):
+    """Return copy_metadata result, or [] if the package isn't installed."""
+    try:
+        return copy_metadata(pkg)
+    except Exception:
+        return []
+
 
 # ---------------------------------------------------------------------------
-# Data files — package resource files that must travel with the binary
+# Data files — package resource files + .dist-info metadata directories
+#
+# copy_metadata() copies the .dist-info folder into the bundle so that
+# importlib.metadata.version() / requires() calls succeed at runtime.
+# photutils uses importlib.metadata on import to read its own version and
+# optional-dependency lists; without the .dist-info folder the import raises
+# PackageNotFoundError before any detection code can run.
 # ---------------------------------------------------------------------------
 datas = (
     collect_data_files('astropy') +
     collect_data_files('astroquery') +
     collect_data_files('matplotlib') +
     collect_data_files('photutils') +
-    collect_data_files('lightkurve')
+    collect_data_files('lightkurve') +
+    safe_copy_metadata('photutils') +
+    safe_copy_metadata('astropy') +
+    safe_copy_metadata('numpy') +
+    safe_copy_metadata('scipy') +
+    safe_copy_metadata('matplotlib') +
+    safe_copy_metadata('astroquery') +
+    safe_copy_metadata('lightkurve') +
+    safe_copy_metadata('packaging') +
+    safe_copy_metadata('importlib_metadata')
 )
 
 # ---------------------------------------------------------------------------
@@ -42,10 +66,21 @@ hiddenimports = [
     'astropy.utils.data',
     'astropy.units',
     'astropy.constants',
-    # Photutils
+    # Photutils — detection submodule (missed by static analysis)
     'photutils',
     'photutils.aperture',
     'photutils.background',
+    'photutils.detection',
+    'photutils.detection.core',
+    'photutils.detection.daofinder',
+    'photutils.detection.irafstarfinder',
+    'photutils.detection.peakfinder',
+    'photutils.utils._optional_deps',
+    'photutils.utils._progress_bars',
+    'photutils.utils.depths',
+    # importlib.metadata — needed by photutils version checks
+    'importlib.metadata',
+    'importlib_metadata',
     # Astroquery
     'astroquery',
     'astroquery.simbad',
