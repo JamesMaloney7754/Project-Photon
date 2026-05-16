@@ -32,7 +32,7 @@ from photon.ui.theme import Colors, Typography
 logger = logging.getLogger(__name__)
 
 
-# ── DataRow ────────────────────────────────────────────────────────────────────
+# ── DataRow ──────────────────────────────────────────────────────────────────────────────
 
 
 class DataRow(QWidget):
@@ -94,7 +94,7 @@ class DataRow(QWidget):
 
         w, h = self.width(), self.height()
 
-        # ── Key label ─────────────────────────────────────────────────────
+        # ── Key label ─────────────────────────────────────────────────
         key_font = QFont("Inter")
         key_font.setPixelSize(Typography.SIZE_SM)
         key_font.setWeight(QFont.Weight(Typography.WEIGHT_REGULAR))
@@ -102,7 +102,7 @@ class DataRow(QWidget):
         painter.setPen(QColor(Colors.TEXT_SECONDARY))
         painter.drawText(0, 0, w // 2 - 4, h - 1, Qt.AlignmentFlag.AlignVCenter, self._key)
 
-        # ── Value label (gold → white flash) ──────────────────────────────
+        # ── Value label (gold → white flash) ───────────────────────────
         # TEXT_GOLD = #fbbf24 = (251, 191, 36); white = (255, 255, 255)
         f = self._flash
         vr = int(251 + (255 - 251) * f)
@@ -120,14 +120,14 @@ class DataRow(QWidget):
             self._value,
         )
 
-        # ── Bottom separator ──────────────────────────────────────────────
+        # ── Bottom separator ───────────────────────────────────────────
         painter.setPen(QColor(Colors.BORDER_SUBTLE))
         painter.drawLine(0, h - 1, w, h - 1)
 
         painter.end()
 
 
-# ── Helpers ────────────────────────────────────────────────────────────────────
+# ── Helpers ──────────────────────────────────────────────────────────────────────────────
 
 
 def _section_header(text: str) -> QWidget:
@@ -158,7 +158,7 @@ def _page_wrapper(inner: QWidget) -> QScrollArea:
     return scroll
 
 
-# ── _RadarWidget ───────────────────────────────────────────────────────────────
+# ── _RadarWidget ─────────────────────────────────────────────────────────────────────────────
 
 
 class _RadarWidget(QWidget):
@@ -211,7 +211,7 @@ class _RadarWidget(QWidget):
             painter.setBrush(Qt.BrushStyle.NoBrush)
             painter.drawEllipse(cx - ring_r, cy - ring_r, ring_r * 2, ring_r * 2)
 
-        # ── Sweep arc (90° wide, rotating) ────────────────────────────────
+        # ── Sweep arc (90° wide, rotating) ───────────────────────────────
         from PySide6.QtGui import QConicalGradient
         grad = QConicalGradient(cx, cy, self._angle)
         grad.setColorAt(0.0,  QColor(124, 58, 237, 0))    # transparent tail
@@ -223,13 +223,13 @@ class _RadarWidget(QWidget):
         painter.setBrush(QBrush(grad))
         painter.drawEllipse(cx - r, cy - r, r * 2, r * 2)
 
-        # ── Crosshairs ────────────────────────────────────────────────────
+        # ── Crosshairs ───────────────────────────────────────────────────
         pen_cross = QPen(QColor(124, 58, 237, 80), 1)  # Colors.VIOLET
         painter.setPen(pen_cross)
         painter.drawLine(cx - r, cy, cx + r, cy)
         painter.drawLine(cx, cy - r, cx, cy + r)
 
-        # ── Sweep tip dot ─────────────────────────────────────────────────
+        # ── Sweep tip dot ──────────────────────────────────────────────────
         angle_rad = math.radians(self._angle)
         tip_x = cx + int(r * math.cos(angle_rad))
         tip_y = cy - int(r * math.sin(angle_rad))
@@ -240,7 +240,7 @@ class _RadarWidget(QWidget):
         painter.end()
 
 
-# ── InspectorPanel ─────────────────────────────────────────────────────────────
+# ── InspectorPanel ─────────────────────────────────────────────────────────────────────────────
 
 
 class InspectorPanel(GlassPanel):
@@ -269,6 +269,7 @@ class InspectorPanel(GlassPanel):
         self.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Expanding)
 
         self._session_provider: object = None
+        self._solving: bool = False
 
         root = QVBoxLayout(self)
         root.setContentsMargins(12, 12, 12, 12)
@@ -356,12 +357,12 @@ class InspectorPanel(GlassPanel):
 
         layout.addSpacing(12)
 
-        # ── Radar animation widget ────────────────────────────────────────
+        # ── Radar animation widget ────────────────────────────────────
         self._radar = _RadarWidget()
         self._radar.setVisible(False)
         layout.addWidget(self._radar, 0, Qt.AlignmentFlag.AlignHCenter)
 
-        # ── Solving status label ──────────────────────────────────────────
+        # ── Solving status label ────────────────────────────────────
         self._solve_status_lbl = QLabel("")
         self._solve_status_lbl.setStyleSheet(
             f"color: {Colors.TEXT_SECONDARY};"
@@ -372,7 +373,7 @@ class InspectorPanel(GlassPanel):
         self._solve_status_lbl.setVisible(False)
         layout.addWidget(self._solve_status_lbl)
 
-        # ── Progress log ──────────────────────────────────────────────────
+        # ── Progress log ──────────────────────────────────────────────
         self._solve_log = QPlainTextEdit()
         self._solve_log.setReadOnly(True)
         self._solve_log.setFixedHeight(80)
@@ -387,7 +388,7 @@ class InspectorPanel(GlassPanel):
         self._solve_log.setVisible(False)
         layout.addWidget(self._solve_log)
 
-        # ── Error label ───────────────────────────────────────────────────
+        # ── Error label ───────────────────────────────────────────────
         self._solve_error_lbl = QLabel("")
         self._solve_error_lbl.setStyleSheet(
             f"color: {Colors.DANGER};"
@@ -400,7 +401,7 @@ class InspectorPanel(GlassPanel):
 
         layout.addSpacing(8)
 
-        # ── Buttons ───────────────────────────────────────────────────────
+        # ── Buttons ───────────────────────────────────────────────────
         self._solve_btn = QPushButton("Solve Field")
         self._solve_btn.setObjectName("solve_btn")
         self._solve_btn.clicked.connect(self._on_solve_clicked)
@@ -435,6 +436,10 @@ class InspectorPanel(GlassPanel):
 
     def _on_solve_clicked(self) -> None:
         """Start a plate-solve worker for the current session frame."""
+        if self._solving:
+            return
+        self._solving = True
+
         import numpy as np
         from PySide6.QtCore import QThreadPool
 
@@ -442,11 +447,13 @@ class InspectorPanel(GlassPanel):
 
         session_provider = getattr(self, "_session_provider", None)
         if session_provider is None:
+            self._solving = False
             self._show_solve_error("No session provider set.")
             return
 
         session = getattr(session_provider, "session", None)
         if session is None or session.image_stack is None:
+            self._solving = False
             self._show_solve_error("No frame loaded.")
             return
 
@@ -499,6 +506,7 @@ class InspectorPanel(GlassPanel):
 
     def _on_solve_result(self, wcs: object) -> None:
         """Handle a successful plate solve."""
+        self._solving = False
         self._solve_status_lbl.setText("Solved!")
         self._solve_status_lbl.setStyleSheet(
             f"color: {Colors.SUCCESS};"
@@ -518,6 +526,7 @@ class InspectorPanel(GlassPanel):
 
     def _on_solve_error_msg(self, tb: str) -> None:
         """Handle a solve failure."""
+        self._solving = False
         self._show_solve_error(tb)
 
     def _show_solve_error(self, msg: str) -> None:

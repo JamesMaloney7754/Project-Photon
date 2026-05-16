@@ -37,7 +37,7 @@ from photon.utils.stretch import stretch_image
 
 logger = logging.getLogger(__name__)
 
-# ── Empty-state widget ──────────────────────────────────────────────────────────
+# ── Empty-state widget ────────────────────────────────────────────────────────────────────────
 
 
 class _EmptyStateWidget(QWidget):
@@ -63,7 +63,7 @@ class _EmptyStateWidget(QWidget):
 
         w, h = self.width(), self.height()
 
-        # ── Dashed rounded drop-zone rect ─────────────────────────────────
+        # ── Dashed rounded drop-zone rect ───────────────────────────────
         margin_x = int(w * 0.20)
         margin_y = int(h * 0.20)
         rect = QRect(margin_x, margin_y, w - 2 * margin_x, h - 2 * margin_y)
@@ -73,7 +73,7 @@ class _EmptyStateWidget(QWidget):
         painter.setBrush(Qt.BrushStyle.NoBrush)
         painter.drawRoundedRect(rect, 12, 12)
 
-        # ── Scan shimmer band ────────────────────────────────────────
+        # ── Scan shimmer band ─────────────────────────────────────────
         diag = math.sqrt(w * w + h * h)
         band_w = diag * 0.30
         t = self._scan_offset
@@ -98,7 +98,7 @@ class _EmptyStateWidget(QWidget):
         cx = w // 2
         cy = h // 2 - 20
 
-        # ── Telescope icon ────────────────────────────────────────────
+        # ── Telescope icon ───────────────────────────────────────────
         icon_pen = QPen(QColor(Colors.TEXT_DISABLED), 2, Qt.PenStyle.SolidLine)
         icon_pen.setCapStyle(Qt.PenCapStyle.RoundCap)
         painter.setPen(icon_pen)
@@ -122,7 +122,7 @@ class _EmptyStateWidget(QWidget):
         # Tripod spreader ring
         painter.drawLine(cx - 18, cy + 30, cx + 18, cy + 30)
 
-        # ── Primary text ──────────────────────────────────────────────
+        # ── Primary text ────────────────────────────────────────────
         font1 = QFont("Inter")
         font1.setPixelSize(Typography.SIZE_MD)
         font1.setWeight(QFont.Weight(Typography.WEIGHT_MEDIUM))
@@ -135,7 +135,7 @@ class _EmptyStateWidget(QWidget):
             "Drop FITS files here",
         )
 
-        # ── Sub-text ──────────────────────────────────────────────────
+        # ── Sub-text ─────────────────────────────────────────────────
         font2 = QFont("Inter")
         font2.setPixelSize(Typography.SIZE_XS)
         painter.setFont(font2)
@@ -149,7 +149,7 @@ class _EmptyStateWidget(QWidget):
         painter.end()
 
 
-# ── Main canvas widget ──────────────────────────────────────────────────────────
+# ── Main canvas widget ──────────────────────────────────────────────────────────────────
 
 
 class FitsCanvas(QWidget):
@@ -192,7 +192,8 @@ class FitsCanvas(QWidget):
 
         # ── Matplotlib figure ───────────────────────────────────────────
         bg = Colors.CANVAS_BG
-        self._figure = Figure(facecolor=bg, tight_layout=True)
+        self._figure = Figure(facecolor=bg, dpi=72)
+        self._figure.set_tight_layout(False)
         self._ax = self._figure.add_subplot(111)
         self._ax.set_facecolor(bg)
         self._mpl_canvas = FigureCanvas(self._figure)
@@ -216,7 +217,7 @@ class FitsCanvas(QWidget):
         self._mpl_anim.setDuration(400)
         self._mpl_wrapper = mpl_wrapper
 
-        # ── Stacked widget ────────────────────────────────────────────
+        # ── Stacked widget ─────────────────────────────────────────────
         self._stack = QStackedWidget()
         self._stack.addWidget(_EmptyStateWidget())
         self._stack.addWidget(mpl_wrapper)
@@ -228,6 +229,13 @@ class FitsCanvas(QWidget):
 
         self._image_obj: Any = None
         self._stretch: str = "asinh"
+        self._current_image: Any = None  # last displayed data; None when empty
+
+        # Resize debounce — defer canvas redraw 150 ms after the last resize event
+        self._resize_timer = QTimer(self)
+        self._resize_timer.setSingleShot(True)
+        self._resize_timer.setInterval(150)
+        self._resize_timer.timeout.connect(self._do_resize)
 
         # Catalog overlay artists (matplotlib)
         self._catalog_overlay_artists: list[Any] = []
@@ -253,6 +261,7 @@ class FitsCanvas(QWidget):
             logger.warning("stretch_image failed (%s); using linear fallback.", exc)
             display_data = stretch_image(data, stretch="linear")
 
+        self._current_image = display_data
         was_empty = self._image_obj is None
 
         if self._image_obj is None:
@@ -299,6 +308,7 @@ class FitsCanvas(QWidget):
         self._ax.cla()
         self._ax.set_facecolor(Colors.CANVAS_BG)
         self._image_obj = None
+        self._current_image = None
         self._clear_star_artists()
         self._clear_catalog_artists()
         self._target_xy = None
@@ -353,7 +363,7 @@ class FitsCanvas(QWidget):
         legend_handles = []
         legend_labels  = []
 
-        # ── Gaia DR3 — tiny grey dots ──────────────────────────────────────
+        # ── Gaia DR3 — tiny grey dots ────────────────────────────────────
         gaia = catalog_results.get("gaia")
         if gaia is not None and len(gaia) > 0 and "ra" in gaia.colnames:
             try:
@@ -457,7 +467,7 @@ class FitsCanvas(QWidget):
             except Exception as exc:
                 logger.debug("SIMBAD overlay failed: %s", exc)
 
-        # ── Legend ──────────────────────────────────────────────────────────────
+        # ── Legend ──────────────────────────────────────────────────────────────────────
         if legend_handles:
             leg = self._ax.legend(
                 legend_handles, legend_labels,
@@ -665,6 +675,19 @@ class FitsCanvas(QWidget):
         if self._interaction_mode == "none":
             return
         self.star_clicked.emit(float(event.xdata), float(event.ydata))
+
+    # ------------------------------------------------------------------
+    # Resize debounce
+    # ------------------------------------------------------------------
+
+    def resizeEvent(self, event: Any) -> None:  # type: ignore[override]
+        super().resizeEvent(event)
+        self._resize_timer.start()  # restarts on each resize; fires once idle
+
+    def _do_resize(self) -> None:
+        if self._current_image is not None:
+            self._figure.tight_layout()
+            self._mpl_canvas.draw_idle()
 
     # ------------------------------------------------------------------
     # Drag-and-drop
