@@ -16,6 +16,12 @@ import logging
 from typing import Optional
 
 import numpy as np
+from photutils.aperture import (
+    CircularAperture,
+    CircularAnnulus,
+    ApertureStats,
+    aperture_photometry,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -77,15 +83,6 @@ def run_aperture_photometry(
         If photutils is unavailable, the stack is not 3-D, no positions are
         provided, or an aperture falls outside the image bounds.
     """
-    try:
-        from photutils.aperture import (
-            CircularAnnulus,
-            CircularAperture,
-            aperture_photometry,
-        )
-    except ImportError as exc:
-        raise PhotometryError("photutils is required for aperture photometry") from exc
-
     if image_stack.ndim != 3:
         raise PhotometryError(
             f"image_stack must be 3-D (N, H, W); got shape {image_stack.shape}"

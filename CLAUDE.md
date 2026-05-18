@@ -1,5 +1,21 @@
 # CLAUDE.md — Architecture Decisions and Conventions
 
+## Git Workflow
+
+- There is ONE branch: main. No other branches exist.
+- The old feature branch claude/scaffold-photon-app-pKMU2 was deleted
+  and must NEVER be referenced again.
+- Local git commits are unreliable in this environment.
+- ALWAYS use the GitHub MCP push tool to write files directly to main.
+- After making file edits, push via MCP targeting branch: "main" explicitly.
+- Then run: git fetch origin && git reset --hard origin/main
+  to sync the local repo with what was pushed.
+- Verify success by running: git log --oneline -3
+  The new commit must appear above 9509ac4.
+- For tags, print: "Run in terminal: git tag vX.X.X && git push origin vX.X.X"
+
+---
+
 ## Project Overview
 
 Photon is a desktop application for astrophotography science analysis.  It enables

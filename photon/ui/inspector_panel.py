@@ -697,29 +697,47 @@ class InspectorPanel(GlassPanel):
                 row.set_value("—")
             return
 
+        import numpy as np
+        import astropy.units as u
+        from astropy.wcs.utils import proj_plane_pixel_scales
+
+        ra_str = "—"
+        dec_str = "—"
+        scale_str = "—"
+        rot_str = "—"
+
         try:
-            nx = int(getattr(wcs, "pixel_shape", [None, None])[1] or 256)
-            ny = int(getattr(wcs, "pixel_shape", [None, None])[0] or 256)
-            sky = wcs.pixel_to_world(nx / 2, ny / 2)
-            ra_str  = sky.ra.to_string(unit="hourangle", sep=":", precision=2, pad=True)
+            if hasattr(wcs, "array_shape") and wcs.array_shape:
+                h, w = wcs.array_shape
+            else:
+                h, w = 3856, 2180
+            sky = wcs.pixel_to_world(w / 2, h / 2)
+            ra_str = sky.ra.to_string(unit=u.hour, sep=":", precision=2, pad=True)
             dec_str = sky.dec.to_string(sep=":", precision=1, alwayssign=True)
-            self._p1_ra.set_value(ra_str)
-            self._p1_dec.set_value(dec_str)
-        except Exception:
-            self._p1_ra.set_value("—")
-            self._p1_dec.set_value("—")
+        except Exception as e:
+            logger.error("RA/Dec failed: %s", e, exc_info=True)
+            ra_str = "error"
+            dec_str = "error"
 
         try:
-            from astropy.wcs.utils import proj_plane_pixel_scales
-            import astropy.units as u
-            scales = proj_plane_pixel_scales(wcs) * u.deg
-            arcsec = scales[0].to(u.arcsec).value
-            self._p1_scale.set_value(f"{arcsec:.3f} \"/px")
+            scales = proj_plane_pixel_scales(wcs)
+            scale_str = f"{float(scales[0]) * 3600:.3f} \"/px"
         except Exception:
-            self._p1_scale.set_value("—")
+            pass
 
-        self._p1_rotation.set_value("—")
+        try:
+            cd = wcs.pixel_scale_matrix
+            rot = np.degrees(np.arctan2(cd[0, 1], cd[0, 0]))
+            rot_str = f"{rot:.2f}°"
+        except Exception:
+            pass
+
+        self._p1_ra.set_value(ra_str)
+        self._p1_dec.set_value(dec_str)
+        self._p1_scale.set_value(scale_str)
+        self._p1_rotation.set_value(rot_str)
         self._p1_matches.set_value("—")
+        logger.info("WCS: %s %s %s", ra_str, dec_str, scale_str)
 
     def update_photometry_info(self, results: dict) -> None:
         """Populate page 2 from photometry configuration *results*.
