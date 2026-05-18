@@ -66,10 +66,25 @@ hiddenimports = [
     'astropy.utils.data',
     'astropy.units',
     'astropy.constants',
-    # Photutils — detection submodule (missed by static analysis)
+    # Photutils — collect_submodules catches all Cython extensions automatically
+    # so we don't have to chase individual missing modules one at a time.
+    *collect_submodules('photutils'),
+    # Photutils geometry — Cython extensions used by aperture photometry
+    'photutils.geometry',
+    'photutils.geometry.core',
+    'photutils.geometry.circular_overlap',
+    'photutils.geometry.elliptical_overlap',
+    'photutils.geometry.rectangular_overlap',
+    # Photutils aperture, background, detection submodules
     'photutils',
     'photutils.aperture',
+    'photutils.aperture.circle',
+    'photutils.aperture.core',
+    'photutils.aperture.stats',
     'photutils.background',
+    'photutils.background.core',
+    'photutils.background.interpolators',
+    'photutils.background.background_2d',
     'photutils.detection',
     'photutils.detection.core',
     'photutils.detection.daofinder',
