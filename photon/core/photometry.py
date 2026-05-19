@@ -22,6 +22,7 @@ from photutils.aperture import (
     ApertureStats,
     aperture_photometry,
 )
+from photutils.background import Background2D, MedianBackground
 
 logger = logging.getLogger(__name__)
 
@@ -80,8 +81,8 @@ def run_aperture_photometry(
     Raises
     ------
     PhotometryError
-        If photutils is unavailable, the stack is not 3-D, no positions are
-        provided, or an aperture falls outside the image bounds.
+        If the stack is not 3-D, no positions are provided, or an aperture
+        falls outside the image bounds.
     """
     if image_stack.ndim != 3:
         raise PhotometryError(
