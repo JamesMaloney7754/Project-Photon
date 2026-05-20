@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python -m pytest tests/ -v)",
+      "Bash(git add *)",
+      "Bash(git push *)",
+      "Bash(git tag *)",
+      "Bash(gh auth *)"
+    ]
+  }
+}
