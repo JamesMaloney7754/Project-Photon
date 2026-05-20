@@ -30,14 +30,14 @@ class Colors:
     BORDER          = "#1e2d45"
     BORDER_SUBTLE   = "#152032"
 
-    # Accents — violet (actions / navigation)
-    VIOLET          = "#7c3aed"
-    VIOLET_BRIGHT   = "#8b5cf6"
-    VIOLET_GLOW     = "rgba(124, 58, 237, 40)"
-    VIOLET_DIM      = "rgba(124, 58, 237, 20)"
+    # Accents — red (actions / navigation)
+    VIOLET          = "#dc2626"
+    VIOLET_BRIGHT   = "#ef4444"
+    VIOLET_GLOW     = "rgba(220, 38, 38, 40)"
+    VIOLET_DIM      = "rgba(220, 38, 38, 20)"
 
-    BLUE            = "#3b82f6"
-    BLUE_GLOW       = "rgba(59, 130, 246, 30)"
+    BLUE            = "#b91c1c"
+    BLUE_GLOW       = "rgba(185, 28, 28, 30)"
 
     # Science data accent — gold/amber for measurements and values
     GOLD            = "#f59e0b"
@@ -53,7 +53,7 @@ class Colors:
     TEXT_SECONDARY  = "#6b7fa3"   # Muted blue-grey
     TEXT_DISABLED   = "#2d3f5c"
     TEXT_GOLD       = "#fbbf24"   # Science values
-    TEXT_ACCENT     = "#a78bfa"   # Light violet highlights
+    TEXT_ACCENT     = "#f87171"   # Light red highlights
 
     # Canvas
     CANVAS_BG       = "#04060d"
@@ -180,7 +180,7 @@ QPushButton:hover {{
     border-top: 1px solid rgba(255, 255, 255, 50);
 }}
 QPushButton:pressed {{
-    background-color: #6d28d9;
+    background-color: #991b1b;
 }}
 QPushButton:disabled {{
     background-color: {C.SURFACE_RAISED};
@@ -197,7 +197,7 @@ QPushButton[flat="true"]:hover {{
     border-color: {C.VIOLET};
 }}
 QPushButton[flat="true"]:pressed {{
-    background-color: rgba(124, 58, 237, 20);
+    background-color: rgba(220, 38, 38, 20);
 }}
 
 /* ── Tool Buttons ───────────────────────────────────────────────────────── */

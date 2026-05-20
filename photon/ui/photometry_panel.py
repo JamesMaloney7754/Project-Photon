@@ -90,7 +90,7 @@ class AperturePreviewWidget(QWidget):
         r_ap_px = int(self._aperture * scale)
         pen_ap = QPen(QColor(Colors.VIOLET), 1, Qt.PenStyle.SolidLine)
         painter.setPen(pen_ap)
-        painter.setBrush(QColor(124, 58, 237, 40))  # VIOLET dim fill
+        painter.setBrush(QColor(220, 38, 38, 40))  # VIOLET dim fill
         painter.drawEllipse(cx - r_ap_px, cy - r_ap_px,
                             r_ap_px * 2, r_ap_px * 2)
 
@@ -133,6 +133,8 @@ class PhotometryPanel(GlassPanel):
     run_photometry_requested:    Signal = Signal()
     aperture_changed:            Signal = Signal(float, float, float)
     photometry_complete:         Signal = Signal(dict)
+    target_clear_requested:      Signal = Signal()
+    comparisons_clear_requested: Signal = Signal()
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -379,12 +381,20 @@ class PhotometryPanel(GlassPanel):
     # ------------------------------------------------------------------
 
     def _clear_target(self) -> None:
+        self.target_clear_requested.emit()
+
+    def _clear_comparisons(self) -> None:
+        self.comparisons_clear_requested.emit()
+
+    def clear_target(self) -> None:
+        """Clear target selection state and reset label."""
         self._target_xy = None
         self._target_coord_lbl.setText("—")
         self._update_run_btn()
 
-    def _clear_comparisons(self) -> None:
-        self._comparison_xys.clear()
+    def clear_comparison_stars(self) -> None:
+        """Clear all comparison stars from the list and internal state."""
+        self._comparison_xys = []
         self._comp_list.clear()
         self._update_run_btn()
 

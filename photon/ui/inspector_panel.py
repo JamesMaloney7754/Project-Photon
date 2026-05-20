@@ -206,7 +206,7 @@ class _RadarWidget(QWidget):
         # ── Concentric rings ──────────────────────────────────────────────
         for frac in (0.33, 0.67, 1.0):
             ring_r = int(r * frac)
-            pen = QPen(QColor(124, 58, 237, 50), 1)  # Colors.VIOLET dim
+            pen = QPen(QColor(220, 38, 38, 50), 1)  # Colors.VIOLET dim
             painter.setPen(pen)
             painter.setBrush(Qt.BrushStyle.NoBrush)
             painter.drawEllipse(cx - ring_r, cy - ring_r, ring_r * 2, ring_r * 2)
@@ -214,9 +214,9 @@ class _RadarWidget(QWidget):
         # ── Sweep arc (90° wide, rotating) ───────────────────────────────
         from PySide6.QtGui import QConicalGradient
         grad = QConicalGradient(cx, cy, self._angle)
-        grad.setColorAt(0.0,  QColor(124, 58, 237, 0))    # transparent tail
-        grad.setColorAt(0.25, QColor(124, 58, 237, 180))  # Colors.VIOLET bright
-        grad.setColorAt(1.0,  QColor(124, 58, 237, 0))
+        grad.setColorAt(0.0,  QColor(220, 38, 38, 0))    # transparent tail
+        grad.setColorAt(0.25, QColor(220, 38, 38, 180))  # Colors.VIOLET bright
+        grad.setColorAt(1.0,  QColor(220, 38, 38, 0))
 
         from PySide6.QtGui import QBrush
         painter.setPen(Qt.PenStyle.NoPen)
@@ -224,7 +224,7 @@ class _RadarWidget(QWidget):
         painter.drawEllipse(cx - r, cy - r, r * 2, r * 2)
 
         # ── Crosshairs ───────────────────────────────────────────────────
-        pen_cross = QPen(QColor(124, 58, 237, 80), 1)  # Colors.VIOLET
+        pen_cross = QPen(QColor(220, 38, 38, 80), 1)  # Colors.VIOLET
         painter.setPen(pen_cross)
         painter.drawLine(cx - r, cy, cx + r, cy)
         painter.drawLine(cx, cy - r, cx, cy + r)
@@ -700,6 +700,9 @@ class InspectorPanel(GlassPanel):
         import numpy as np
         import astropy.units as u
         from astropy.wcs.utils import proj_plane_pixel_scales
+
+        logger.info("WCS array_shape: %s", getattr(wcs, "array_shape", "N/A"))
+        logger.info("WCS pixel_shape: %s", getattr(wcs, "pixel_shape", "N/A"))
 
         ra_str = "—"
         dec_str = "—"

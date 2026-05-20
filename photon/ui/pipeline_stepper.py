@@ -197,7 +197,7 @@ class PipelineStepperWidget(QWidget):
                 if i < len(self._completed) and (i + 1) in self._completed:
                     # Completed connector: violet → success gradient
                     conn_grad = QLinearGradient(line_x0, line_y, line_x1, line_y)
-                    conn_grad.setColorAt(0.0, QColor(124, 58, 237))   # VIOLET
+                    conn_grad.setColorAt(0.0, QColor(220, 38, 38))   # VIOLET
                     conn_grad.setColorAt(1.0, QColor(16, 185, 129))   # SUCCESS
                     conn_pen = QPen()
                     conn_pen.setBrush(conn_grad)
@@ -211,8 +211,8 @@ class PipelineStepperWidget(QWidget):
             if i == self._active and i not in self._completed:
                 gr = self._glow_radius
                 glow_grad = QRadialGradient(cx, cy, gr + 4)
-                glow_grad.setColorAt(0.0, QColor(124, 58, 237, 80))   # VIOLET
-                glow_grad.setColorAt(1.0, QColor(124, 58, 237, 0))
+                glow_grad.setColorAt(0.0, QColor(220, 38, 38, 80))   # VIOLET
+                glow_grad.setColorAt(1.0, QColor(220, 38, 38, 0))
                 painter.setPen(Qt.PenStyle.NoPen)
                 painter.setBrush(glow_grad)
                 painter.drawEllipse(

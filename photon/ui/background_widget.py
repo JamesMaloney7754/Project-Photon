@@ -53,7 +53,7 @@ class BackgroundWidget(QWidget):
         bloom_cy = h * 0.20
         bloom_r  = w * 0.40
         grad2 = QRadialGradient(bloom_cx, bloom_cy, bloom_r)
-        grad2.setColorAt(0.0, QColor(124, 58, 237, 18))   # VIOLET_GLOW hint
+        grad2.setColorAt(0.0, QColor(220, 38, 38, 18))   # VIOLET_GLOW hint
         grad2.setColorAt(1.0, QColor(0,   0,   0,   0))   # transparent
 
         painter.setCompositionMode(QPainter.CompositionMode.CompositionMode_Screen)

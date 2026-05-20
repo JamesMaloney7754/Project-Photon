@@ -111,6 +111,8 @@ def select_comparison_stars(
     min_snr: float = 50.0,
     max_stars: int = 10,
     exclusion_radius_px: float = 30.0,
+    image_shape: tuple = None,
+    edge_margin_px: float = 50.0,
 ) -> object:
     """Select suitable comparison stars from detected sources.
 
@@ -136,6 +138,11 @@ def select_comparison_stars(
         Maximum number of comparison stars to return.
     exclusion_radius_px : float
         Radius around the target inside which sources are excluded.
+    image_shape : tuple or None
+        ``(height, width)`` of the image in pixels.  When provided, stars
+        within *edge_margin_px* of any edge are additionally excluded.
+    edge_margin_px : float
+        Exclusion margin from each image edge in pixels (default 50).
 
     Returns
     -------
@@ -156,9 +163,18 @@ def select_comparison_stars(
     dist_to_target = np.sqrt((xs - target_x) ** 2 + (ys - target_y) ** 2)
     mask_not_target = dist_to_target > exclusion_radius_px
 
-    # 2. Edge exclusion (20 px)
+    # 2. Edge exclusion
     edge = 20.0
     mask_not_edge = (xs > edge) & (ys > edge)
+    if image_shape is not None:
+        h, w = image_shape
+        edge_mask = (
+            (xs > edge_margin_px) &
+            (xs < w - edge_margin_px) &
+            (ys > edge_margin_px) &
+            (ys < h - edge_margin_px)
+        )
+        mask_not_edge = mask_not_edge & edge_mask
 
     # 3. Saturation exclusion (peak > 80% of max peak)
     sat_limit = 0.80 * float(peaks.max()) if peaks.max() > 0 else 1e38

@@ -356,7 +356,7 @@ class MainWindow(QMainWindow):
             f"  font-size: {Typography.SIZE_XS}px;"
             f"}}"
             f"QPushButton:checked {{"
-            f"  background-color: rgba(124,58,237,40);"  # Colors.VIOLET_GLOW
+            f"  background-color: rgba(220,38,38,40);"  # Colors.VIOLET_GLOW
             f"  color: {Colors.VIOLET_BRIGHT};"
             f"  border-color: {Colors.VIOLET};"
             f"}}"
@@ -422,6 +422,8 @@ class MainWindow(QMainWindow):
         self._phot_panel.run_photometry_requested.connect(self._run_photometry)
         self._phot_panel.aperture_changed.connect(self._on_aperture_changed)
         self._phot_panel.photometry_complete.connect(self._on_photometry_complete)
+        self._phot_panel.target_clear_requested.connect(self._on_target_cleared)
+        self._phot_panel.comparisons_clear_requested.connect(self._on_comparisons_cleared)
 
         self._canvas.star_clicked.connect(self._on_star_clicked)
         self._lc_panel.frame_flagged.connect(self._on_frame_flagged)
@@ -859,11 +861,18 @@ class MainWindow(QMainWindow):
             return
 
         sm = get_settings_manager()
+        image_shape = (
+            self.session.image_stack[0].shape
+            if self.session.image_stack is not None
+            else None
+        )
         comps = select_comparison_stars(
             stars,
             txy[0], txy[1],
             min_snr=sm.get("photometry/min_comparison_snr"),
             max_stars=sm.get("photometry/max_comparison_stars"),
+            image_shape=image_shape,
+            edge_margin_px=50.0,
         )
         xys = [
             (float(comps["x_centroid"][i]), float(comps["y_centroid"][i]))
@@ -873,6 +882,35 @@ class MainWindow(QMainWindow):
         self._phot_panel.set_comparisons(xys)
         self._canvas.set_target(self.session.target_xy, xys)
         self._bottom.set_status(f"Auto-selected {len(xys)} comparison stars.")
+
+    def _on_target_cleared(self) -> None:
+        """Handle target Clear button — wipe session state and redraw."""
+        self.session.target_xy = None
+        self.session.target_star_row = None
+        self.session.comparison_xys = []
+        self.session.comparison_star_rows = []
+        if self.session.detected_stars is not None:
+            self._canvas.display_stars(
+                self.session.detected_stars,
+                target_xy=None,
+                comparison_xys=[],
+            )
+        else:
+            self._canvas.clear_star_overlay()
+        self._phot_panel.clear_comparison_stars()
+        self._phot_panel.clear_target()
+
+    def _on_comparisons_cleared(self) -> None:
+        """Handle comparison Clear all button — wipe comparison state and redraw."""
+        self.session.comparison_xys = []
+        self.session.comparison_star_rows = []
+        if self.session.detected_stars is not None:
+            self._canvas.display_stars(
+                self.session.detected_stars,
+                target_xy=self.session.target_xy,
+                comparison_xys=[],
+            )
+        self._phot_panel.clear_comparison_stars()
 
     def _on_aperture_changed(
         self, radius: float, inner: float, outer: float

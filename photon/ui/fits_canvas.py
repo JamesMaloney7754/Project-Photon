@@ -37,6 +37,8 @@ from photon.utils.stretch import stretch_image
 
 logger = logging.getLogger(__name__)
 
+_UNSET: object = object()  # sentinel for optional display_stars arguments
+
 # ── Empty-state widget ────────────────────────────────────────────────────────────────────────
 
 
@@ -86,7 +88,7 @@ class _EmptyStateWidget(QWidget):
         gy1 = float(h)
         shimmer = QLinearGradient(gx0, gy0, gx1, gy1)
         shimmer.setColorAt(0.0, QColor(0, 0, 0, 0))
-        shimmer.setColorAt(0.5, QColor(124, 58, 237, 15))   # VIOLET faint
+        shimmer.setColorAt(0.5, QColor(220, 38, 38, 15))   # VIOLET faint
         shimmer.setColorAt(1.0, QColor(0, 0, 0, 0))
         painter.setPen(Qt.PenStyle.NoPen)
         painter.setBrush(shimmer)
@@ -514,14 +516,30 @@ class FitsCanvas(QWidget):
     # Star overlay
     # ------------------------------------------------------------------
 
-    def display_stars(self, stars: Any) -> None:
+    def display_stars(
+        self,
+        stars: Any,
+        target_xy: Any = _UNSET,
+        comparison_xys: Any = _UNSET,
+    ) -> None:
         """Draw star detection overlay markers on the current image.
 
         Parameters
         ----------
         stars : astropy.table.Table
             Source table from :func:`photon.core.star_detector.detect_stars`.
+        target_xy : tuple or None, optional
+            When supplied, overrides the stored target position (pass ``None``
+            to clear the target overlay).
+        comparison_xys : list or None, optional
+            When supplied, overrides the stored comparison positions (pass
+            ``[]`` to clear comparison overlays).
         """
+        if target_xy is not _UNSET:
+            self._target_xy = target_xy
+        if comparison_xys is not _UNSET:
+            self._comparison_xys = list(comparison_xys) if comparison_xys else []
+
         self._clear_star_artists()
         if stars is None or len(stars) == 0:
             self._mpl_canvas.draw_idle()
@@ -559,13 +577,13 @@ class FitsCanvas(QWidget):
 
             tsc = self._ax.scatter(
                 [tx], [ty],
-                s=50, color="#7c3aed", zorder=6, alpha=0.9,  # Colors.VIOLET
+                s=50, color="#dc2626", zorder=6, alpha=0.9,  # Colors.VIOLET
             )
             tsc._photon_selection = True  # type: ignore[attr-defined]
             self._star_overlay_artists.append(tsc)
 
             for radius, color, ls in [
-                (self._aperture_radius, "#7c3aed", "-"),   # Colors.VIOLET
+                (self._aperture_radius, "#dc2626", "-"),   # Colors.VIOLET
                 (self._annulus_inner,   "#f59e0b", "--"),  # Colors.GOLD
                 (self._annulus_outer,   "#f59e0b", "--"),  # Colors.GOLD
             ]:
@@ -741,7 +759,7 @@ class FitsCanvas(QWidget):
         # Violet drag-hover overlay
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        painter.fillRect(self.rect(), QColor(124, 58, 237, 40))   # Colors.VIOLET @ ~16% opacity
+        painter.fillRect(self.rect(), QColor(220, 38, 38, 40))   # Colors.VIOLET @ ~16% opacity
         pen = QPen(QColor(Colors.VIOLET), 2, Qt.PenStyle.DashLine)
         painter.setPen(pen)
         painter.setBrush(Qt.BrushStyle.NoBrush)
