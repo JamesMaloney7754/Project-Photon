@@ -1,11 +1,11 @@
-"""Main application window — Deep Field layout with glass panels."""
+"""Main application window — Cockpit dashboard layout."""
 
 from __future__ import annotations
 
 import logging
 from pathlib import Path
 
-from PySide6.QtCore import Q_ARG, QMetaObject, QPoint, QPropertyAnimation, QThreadPool, QTimer, Qt
+from PySide6.QtCore import Q_ARG, QMetaObject, QPropertyAnimation, QThreadPool, QTimer, Qt
 from PySide6.QtGui import (
     QColor,
     QFont,
@@ -13,6 +13,7 @@ from PySide6.QtGui import (
     QPainter,
     QPen,
     QPolygon,
+    QPoint,
     QShortcut,
 )
 from PySide6.QtWidgets import (
@@ -26,7 +27,6 @@ from PySide6.QtWidgets import (
     QPlainTextEdit,
     QPushButton,
     QSplitter,
-    QStackedWidget,
     QToolButton,
     QVBoxLayout,
     QWidget,
@@ -37,12 +37,15 @@ from photon.core.settings_manager import get_settings_manager
 from photon.core.star_detector import select_comparison_stars, snap_to_nearest_star
 from photon.ui.background_widget import BackgroundWidget
 from photon.ui.bottom_bar import BottomBarWidget
+from photon.ui.cockpit_pane import CockpitPane
 from photon.ui.fits_canvas import FitsCanvas
 from photon.ui.inspector_panel import InspectorPanel
 from photon.ui.light_curve_panel import LightCurvePanel
+from photon.ui.metrics_pane import MetricsPane
 from photon.ui.photometry_panel import PhotometryPanel
-from photon.ui.pipeline_stepper import PipelineStepperWidget
+from photon.ui.pipeline_badge_bar import PipelineBadgeBar
 from photon.ui.session_sidebar import SessionSidebar
+from photon.ui.star_table_widget import StarTableWidget
 from photon.ui.theme import Colors, Typography
 from photon.workers.fits_worker import FitsLoaderWorker
 from photon.workers.photometry_worker import PhotometryWorker
@@ -51,7 +54,7 @@ from photon.workers.star_detection_worker import StarDetectionWorker
 logger = logging.getLogger(__name__)
 
 
-# ── Diagnostics log handler + dialog ────────────────────────────────────────────────
+# ── Diagnostics log handler + dialog ──────────────────────────────────────────
 
 
 class QtLogHandler(logging.Handler):
@@ -90,7 +93,7 @@ class _DiagnosticsDialog(QDialog):
         self.text_widget.setStyleSheet(
             f"QPlainTextEdit {{"
             f"  background-color: {Colors.CANVAS_BG};"
-            f"  color: {Colors.TEXT_PRIMARY};"
+            f"  color: {Colors.FG};"
             f"  font-family: {Typography.FONT_MONO};"
             f"  font-size: {Typography.SIZE_SM}px;"
             f"  border: 1px solid {Colors.BORDER};"
@@ -130,13 +133,13 @@ class _DiagnosticsDialog(QDialog):
                 logger.error("Failed to save log: %s", exc)
 
 
-# ── Logo widget (painted hexagon + wordmark) ───────────────────────────────────────────────
+# ── Logo widget ────────────────────────────────────────────────────────────────
 
 
 class _LogoWidget(QWidget):
-    """Paints a violet hexagon followed by the \"PHOTON\" wordmark."""
+    """Paints a red hexagon followed by the \"PHOTON\" wordmark."""
 
-    _SIZE = 14  # hexagon apothem in px
+    _SIZE = 14
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -145,35 +148,32 @@ class _LogoWidget(QWidget):
         self.setStyleSheet("background-color: transparent;")
 
     def paintEvent(self, _event: object) -> None:  # type: ignore[override]
+        import math
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
 
-        import math
         cx, cy = self._SIZE + 2, self.height() // 2
         r = self._SIZE
-        # Six-sided polygon
         points = [
             QPoint(int(cx + r * math.cos(math.radians(60 * k - 30))),
                    int(cy + r * math.sin(math.radians(60 * k - 30))))
             for k in range(6)
         ]
         painter.setPen(Qt.PenStyle.NoPen)
-        painter.setBrush(QColor(Colors.VIOLET))
+        painter.setBrush(QColor(Colors.ACCENT))
         painter.drawPolygon(QPolygon(points))
 
-        # "PHOTON" wordmark
         font = QFont("Inter")
         font.setPixelSize(Typography.SIZE_LG)
         font.setWeight(QFont.Weight(Typography.WEIGHT_BOLD))
         painter.setFont(font)
-        painter.setPen(QColor(Colors.TEXT_PRIMARY))
+        painter.setPen(QColor(Colors.FG))
         text_x = cx + r + 8
         painter.drawText(text_x, 0, self.width() - text_x, self.height(), 0, "PHOTON")
-
         painter.end()
 
 
-# ── Settings gear button ─────────────────────────────────────────────────────────────
+# ── Settings gear button ───────────────────────────────────────────────────────
 
 
 class _GearButton(QToolButton):
@@ -193,11 +193,9 @@ class _GearButton(QToolButton):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         cx, cy = self.width() // 2, self.height() // 2
-        painter.setPen(QPen(QColor(Colors.TEXT_SECONDARY), 1.5))
+        painter.setPen(QPen(QColor(Colors.FG_3), 1.5))
         painter.setBrush(Qt.BrushStyle.NoBrush)
-        # Inner circle
         painter.drawEllipse(cx - 4, cy - 4, 8, 8)
-        # Outer ring with 8 notches
         for k in range(8):
             angle = math.radians(45 * k)
             x0 = cx + int(7 * math.cos(angle))
@@ -209,11 +207,11 @@ class _GearButton(QToolButton):
         painter.end()
 
 
-# ── MainWindow ────────────────────────────────────────────────────────────────────────────
+# ── MainWindow ─────────────────────────────────────────────────────────────────
 
 
 class MainWindow(QMainWindow):
-    """Top-level application window for Photon.
+    """Top-level application window for Photon — cockpit dashboard layout.
 
     Parameters
     ----------
@@ -228,13 +226,12 @@ class MainWindow(QMainWindow):
         self._current_frame: int = 0
         self._current_step: int = 0
 
-        # Frame playback timer (10 fps)
         self._play_timer = QTimer(self)
         self._play_timer.setInterval(100)
         self._play_timer.timeout.connect(self._advance_frame)
 
         self.setWindowTitle("Photon")
-        self.setMinimumSize(1100, 700)
+        self.setMinimumSize(1200, 750)
         self.setMenuBar(None)  # type: ignore[arg-type]
 
         self._build_components()
@@ -245,51 +242,58 @@ class MainWindow(QMainWindow):
         self._diag_dialog = _DiagnosticsDialog(self)
         self.log_widget = self._diag_dialog.text_widget
 
-        # Defer solver-installation check until after the window is shown
         QTimer.singleShot(500, self._check_solver_installation)
-
-        logger.info("MainWindow initialised.")
+        logger.info("MainWindow initialised (cockpit layout).")
 
     # ------------------------------------------------------------------
     # Construction
     # ------------------------------------------------------------------
 
     def _build_components(self) -> None:
-        self._stepper        = PipelineStepperWidget()
-        self._sidebar        = SessionSidebar()
-        self._canvas         = FitsCanvas()
-        self._inspector      = InspectorPanel()
-        self._bottom         = BottomBarWidget()
-        self._phot_panel     = PhotometryPanel()
-        self._lc_panel       = LightCurvePanel()
+        # Cockpit dashboard widgets
+        self._badge_bar    = PipelineBadgeBar()
+        self._metrics_pane = MetricsPane()
+        self._star_table   = StarTableWidget()
+        self._sidebar      = SessionSidebar()
+        self._canvas       = FitsCanvas()
+        self._lc_panel     = LightCurvePanel()
+        self._bottom       = BottomBarWidget()
 
-        # Lazy-import settings window to avoid Qt startup cost
+        # Keep InspectorPanel as a non-visible logic component for solve dispatch
+        self._inspector = InspectorPanel()
+
+        # Keep PhotometryPanel as a non-visible logic component for photometry_complete signal
+        self._phot_panel = PhotometryPanel()
+
         self._settings_window: object | None = None
 
     def _build_layout(self) -> None:
-        """Assemble the full window layout with BackgroundWidget as root."""
         bg = BackgroundWidget()
         root_layout = QVBoxLayout(bg)
         root_layout.setContentsMargins(0, 0, 0, 0)
         root_layout.setSpacing(0)
 
-        # ── Top bar ─────────────────────────────────────────────────────────────
-        top_bar = self._build_top_bar()
-        root_layout.addWidget(top_bar)
+        root_layout.addWidget(self._build_top_bar())
 
-        # ── Main splitter (8px margins so gradient shows around panels) ───
-        splitter_wrapper = QWidget()
-        splitter_wrapper.setStyleSheet("background-color: transparent;")
-        sw_layout = QVBoxLayout(splitter_wrapper)
-        sw_layout.setContentsMargins(8, 8, 8, 8)
-        sw_layout.setSpacing(0)
+        # ── Main area (8px margins so gradient shows) ─────────────────────
+        wrapper = QWidget()
+        wrapper.setStyleSheet("background-color: transparent;")
+        wl = QVBoxLayout(wrapper)
+        wl.setContentsMargins(8, 8, 8, 8)
+        wl.setSpacing(0)
 
-        # Outer horizontal splitter: sidebar | center | right-panel
+        # Horizontal splitter: left sidebar | center | right column
         self._splitter = QSplitter(Qt.Orientation.Horizontal)
         self._splitter.setChildrenCollapsible(False)
         self._splitter.setStyleSheet("QSplitter { background-color: transparent; }")
 
-        # Center: vertical splitter (canvas / light curve), ratio 60/40
+        # Left: session sidebar wrapped in a CockpitPane
+        left_pane = CockpitPane(title="Sequence")
+        left_pane.set_content_widget(self._sidebar)
+        left_pane.setMinimumWidth(200)
+        left_pane.setMaximumWidth(280)
+
+        # Center: vertical splitter — canvas / light curve
         self._v_splitter = QSplitter(Qt.Orientation.Vertical)
         self._v_splitter.setChildrenCollapsible(False)
         self._v_splitter.setStyleSheet("QSplitter { background-color: transparent; }")
@@ -299,119 +303,126 @@ class MainWindow(QMainWindow):
         self._v_splitter.setStretchFactor(1, 2)
         self._lc_panel.setVisible(False)
 
-        # Right panel: InspectorPanel (steps 0-2) / PhotometryPanel (step 3)
-        self._right_stack = QStackedWidget()
-        self._right_stack.addWidget(self._inspector)   # page 0
-        self._right_stack.addWidget(self._phot_panel)  # page 1
+        # Right: vertical splitter — MetricsPane (top) / star table pane (bottom)
+        right_splitter = QSplitter(Qt.Orientation.Vertical)
+        right_splitter.setChildrenCollapsible(False)
+        right_splitter.setStyleSheet("QSplitter { background-color: transparent; }")
 
-        self._splitter.addWidget(self._sidebar)
+        # Star table wrapped in a CockpitPane
+        star_pane = CockpitPane(title="Stars")
+        star_pane.set_content_widget(self._star_table)
+
+        right_splitter.addWidget(self._metrics_pane)
+        right_splitter.addWidget(star_pane)
+        right_splitter.setStretchFactor(0, 1)
+        right_splitter.setStretchFactor(1, 2)
+        right_splitter.setMinimumWidth(280)
+        right_splitter.setMaximumWidth(380)
+
+        self._splitter.addWidget(left_pane)
         self._splitter.addWidget(self._v_splitter)
-        self._splitter.addWidget(self._right_stack)
+        self._splitter.addWidget(right_splitter)
         self._splitter.setCollapsible(0, False)
         self._splitter.setCollapsible(2, False)
         self._splitter.setStretchFactor(0, 0)
         self._splitter.setStretchFactor(1, 1)
         self._splitter.setStretchFactor(2, 0)
-        sw_layout.addWidget(self._splitter)
 
-        root_layout.addWidget(splitter_wrapper, 1)
-
-        # ── Bottom bar ────────────────────────────────────────────────
+        wl.addWidget(self._splitter)
+        root_layout.addWidget(wrapper, 1)
         root_layout.addWidget(self._bottom)
 
         self.setCentralWidget(bg)
 
     def _build_top_bar(self) -> QWidget:
-        """Return the 56px top bar with logo, stepper, and gear button."""
         bar = QWidget()
-        bar.setFixedHeight(56)
+        bar.setFixedHeight(52)
         bar.setStyleSheet(
-            "background-color: rgba(6, 8, 16, 160);"
-            "border-bottom: 1px solid rgba(255, 255, 255, 15);"
+            f"background-color: {Colors.BG_TITLEBAR};"
+            f"border-bottom: 1px solid {Colors.BORDER};"
         )
 
         layout = QHBoxLayout(bar)
         layout.setContentsMargins(16, 0, 16, 0)
         layout.setSpacing(0)
 
-        # Logo
         logo = _LogoWidget()
         layout.addWidget(logo, 0, Qt.AlignmentFlag.AlignVCenter)
+        layout.addSpacing(16)
 
-        layout.addSpacing(12)
-
-        # Catalog overlay toggle button (flat, checkable)
-        from PySide6.QtWidgets import QPushButton
+        # Catalog overlay toggle
         self._catalog_toggle_btn = QPushButton("Catalog")
         self._catalog_toggle_btn.setCheckable(True)
         self._catalog_toggle_btn.setChecked(True)
-        self._catalog_toggle_btn.setFixedHeight(28)
+        self._catalog_toggle_btn.setFixedHeight(26)
         self._catalog_toggle_btn.setStyleSheet(
             f"QPushButton {{"
             f"  background-color: transparent;"
-            f"  color: {Colors.TEXT_SECONDARY};"
+            f"  color: {Colors.FG_3};"
             f"  border: 1px solid {Colors.BORDER};"
-            f"  border-radius: 6px;"
+            f"  border-radius: 5px;"
             f"  padding: 0 10px;"
             f"  font-size: {Typography.SIZE_XS}px;"
             f"}}"
             f"QPushButton:checked {{"
-            f"  background-color: rgba(220,38,38,40);"  # Colors.VIOLET_GLOW
-            f"  color: {Colors.VIOLET_BRIGHT};"
-            f"  border-color: {Colors.VIOLET};"
+            f"  background-color: rgba(220,38,38,20);"
+            f"  color: {Colors.ACCENT};"
+            f"  border-color: {Colors.ACCENT};"
             f"}}"
             f"QPushButton:hover:!checked {{"
-            f"  background-color: {Colors.SURFACE_ALT};"
-            f"  color: {Colors.TEXT_PRIMARY};"
+            f"  background-color: {Colors.BG_PANEL_2};"
+            f"  color: {Colors.FG};"
             f"}}"
         )
         self._catalog_toggle_btn.toggled.connect(self._canvas.toggle_catalog_overlay)
         layout.addWidget(self._catalog_toggle_btn, 0, Qt.AlignmentFlag.AlignVCenter)
 
-        # Stepper — centered
+        # Pipeline badge bar — centered
         layout.addStretch(1)
-        layout.addWidget(self._stepper, 0, Qt.AlignmentFlag.AlignVCenter)
+        layout.addWidget(self._badge_bar, 0, Qt.AlignmentFlag.AlignVCenter)
         layout.addStretch(1)
 
-        # Settings gear button with popup menu
+        # Gear / settings menu
         self._gear_btn = _GearButton()
         self._gear_btn.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
         self._gear_btn.setToolTip("Application menu")
 
         gear_menu = QMenu(self._gear_btn)
-        gear_menu.setStyleSheet(
-            f"QMenu {{ background-color: {Colors.SURFACE_RAISED};"
-            f" border: 1px solid rgba(255,255,255,20); border-radius: 10px;"
-            f" padding: 6px 0; color: {Colors.TEXT_PRIMARY}; }}"
-            f"QMenu::item {{ padding: 7px 24px 7px 14px; border-radius: 6px;"
-            f" margin: 1px 6px; }}"
-            f"QMenu::item:selected {{ background-color: {Colors.VIOLET}; }}"
-            f"QMenu::separator {{ height: 1px; background-color: {Colors.BORDER};"
-            f" margin: 4px 10px; }}"
-        )
-        gear_menu.addAction("Open Sequence…", self._open_sequence, "Ctrl+O")
-        gear_menu.addAction("Settings…",      self._open_settings,  "Ctrl+,")
-        gear_menu.addAction("View Diagnostics…", self._open_diagnostics)
+        gear_menu.addAction("Open Sequence…",    self._open_sequence,    "Ctrl+O")
+        gear_menu.addAction("Settings…",          self._open_settings,    "Ctrl+,")
+        gear_menu.addAction("View Diagnostics…",  self._open_diagnostics)
         gear_menu.addSeparator()
         gear_menu.addAction("Quit", self.close, "Ctrl+Q")
         self._gear_btn.setMenu(gear_menu)
-
         layout.addWidget(self._gear_btn, 0, Qt.AlignmentFlag.AlignVCenter)
 
         return bar
 
     def _connect_signals(self) -> None:
+        # Sidebar / canvas / bottom bar
         self._sidebar.open_requested.connect(self._open_sequence)
         self._canvas.files_dropped.connect(self._load_paths)
         self._sidebar.frame_selected.connect(self._show_frame)
         self._bottom.frame_scrubbed.connect(self._show_frame)
-        self._stepper.step_clicked.connect(self._set_pipeline_step)
 
-        # Wire the inspector solve button to this MainWindow (which has .session)
+        # Inspector (hidden) — handles solve dispatch and emits solve_complete
         self._inspector.wire_solve_button(self)
         self._inspector.solve_complete.connect(self._on_solve_complete)
 
-        # Photometry panel signals
+        # MetricsPane — "Solve Field" button
+        self._metrics_pane.solve_requested.connect(self._on_solve_requested)
+
+        # StarTableWidget signals
+        self._star_table.select_target_clicked.connect(
+            lambda: self._canvas.set_interaction_mode("select_target")
+        )
+        self._star_table.auto_select_clicked.connect(self._auto_select_comparisons)
+        self._star_table.run_photometry_clicked.connect(self._run_photometry)
+        self._star_table.target_clear_requested.connect(self._on_target_cleared)
+        self._star_table.comparisons_clear_requested.connect(self._on_comparisons_cleared)
+        self._star_table.aperture_changed.connect(self._on_aperture_changed)
+
+        # PhotometryPanel (hidden) — photometry result processing
         self._phot_panel.select_target_requested.connect(
             lambda: self._canvas.set_interaction_mode("select_target")
         )
@@ -422,9 +433,8 @@ class MainWindow(QMainWindow):
         self._phot_panel.run_photometry_requested.connect(self._run_photometry)
         self._phot_panel.aperture_changed.connect(self._on_aperture_changed)
         self._phot_panel.photometry_complete.connect(self._on_photometry_complete)
-        self._phot_panel.target_clear_requested.connect(self._on_target_cleared)
-        self._phot_panel.comparisons_clear_requested.connect(self._on_comparisons_cleared)
 
+        # Canvas star interaction
         self._canvas.star_clicked.connect(self._on_star_clicked)
         self._lc_panel.frame_flagged.connect(self._on_frame_flagged)
 
@@ -434,18 +444,6 @@ class MainWindow(QMainWindow):
         QShortcut(QKeySequence("Left"),   self).activated.connect(self._prev_frame)
         QShortcut(QKeySequence("Right"),  self).activated.connect(self._next_frame)
         QShortcut(QKeySequence("Space"),  self).activated.connect(self._toggle_play)
-        QShortcut(QKeySequence("1"), self).activated.connect(
-            lambda: self._set_pipeline_step(0)
-        )
-        QShortcut(QKeySequence("2"), self).activated.connect(
-            lambda: self._set_pipeline_step(1)
-        )
-        QShortcut(QKeySequence("3"), self).activated.connect(
-            lambda: self._set_pipeline_step(2)
-        )
-        QShortcut(QKeySequence("4"), self).activated.connect(
-            lambda: self._set_pipeline_step(3)
-        )
         QShortcut(QKeySequence("Ctrl+Q"), self).activated.connect(self.close)
 
     # ------------------------------------------------------------------
@@ -457,8 +455,7 @@ class MainWindow(QMainWindow):
         self._run_launch_animations()
 
     def _run_launch_animations(self) -> None:
-        """Fade the three panels in sequentially on first show."""
-        panels = [self._sidebar, self._v_splitter, self._right_stack]
+        panels = [self._splitter]
         effects: list[QGraphicsOpacityEffect] = []
         anims:   list[QPropertyAnimation] = []
 
@@ -471,54 +468,41 @@ class MainWindow(QMainWindow):
             anim = QPropertyAnimation(eff, b"opacity", self)
             anim.setStartValue(0.0)
             anim.setEndValue(1.0)
-            anim.setDuration(300)
+            anim.setDuration(400)
             anims.append(anim)
 
-        offsets_ms = [0, 100, 200]
-        for anim, delay in zip(anims, offsets_ms):
-            QTimer.singleShot(delay, anim.start)
+        for anim in anims:
+            QTimer.singleShot(0, anim.start)
 
-        # Remove effects after all animations complete to avoid paint artifacts
         def _cleanup() -> None:
             for panel in panels:
                 panel.setGraphicsEffect(None)
 
-        QTimer.singleShot(offsets_ms[-1] + 350, _cleanup)
+        QTimer.singleShot(450, _cleanup)
 
     # ------------------------------------------------------------------
-    # Settings
+    # Settings / diagnostics
     # ------------------------------------------------------------------
 
     def _check_solver_installation(self) -> None:
-        """Warn once per session if no plate solver is available or configured."""
         sm = get_settings_manager()
         backend = sm.get("platesolve/backend")
-
         show_warning = False
 
         if backend == "astap":
             binary = sm.get("platesolve/astap_binary_path")
-            if not binary:
-                # No path configured — check PATH/common locations
-                from photon.core.plate_solver import ASTAPSolver
-                found, _ = ASTAPSolver.detect_installation()
-                show_warning = not found
-            else:
-                from photon.core.plate_solver import ASTAPSolver
-                found, _ = ASTAPSolver.detect_installation(binary)
-                show_warning = not found
-
+            from photon.core.plate_solver import ASTAPSolver
+            found, _ = ASTAPSolver.detect_installation(binary) if binary else ASTAPSolver.detect_installation()
+            show_warning = not found
         elif backend == "local":
             if sm.get("platesolve/local_binary_path"):
-                return  # path explicitly set — trust the user
+                return
             from photon.core.plate_solver import LocalAstrometrySolver
             show_warning = LocalAstrometrySolver.detect_installation() is None
 
-        # Cloud backend never needs a local binary
         if not show_warning:
             return
 
-        from PySide6.QtWidgets import QMessageBox
         msg = QMessageBox(self)
         msg.setWindowTitle("Plate Solving")
         msg.setIcon(QMessageBox.Icon.Information)
@@ -546,11 +530,8 @@ class MainWindow(QMainWindow):
     # ------------------------------------------------------------------
 
     def _open_sequence(self) -> None:
-        """Open a file dialog and kick off the loading worker."""
         paths, _ = QFileDialog.getOpenFileNames(
-            self,
-            "Open FITS Sequence",
-            "",
+            self, "Open FITS Sequence", "",
             "FITS Files (*.fits *.fit);;All Files (*)",
         )
         if paths:
@@ -569,7 +550,7 @@ class MainWindow(QMainWindow):
         QThreadPool.globalInstance().start(worker)
 
     # ------------------------------------------------------------------
-    # Slots
+    # Slots — loading
     # ------------------------------------------------------------------
 
     def _on_loaded(self, payload: object) -> None:
@@ -586,14 +567,15 @@ class MainWindow(QMainWindow):
         self._sidebar.populate(self.session, headers)
         self._show_frame(0)
 
-        self._stepper.set_step_complete(0)
-        self._stepper.set_active_step(0)
+        # Badge bar: mark LOADED complete, set SOLVED active
+        self._badge_bar.set_stage_complete(0)
+        self._badge_bar.set_stage_active(1)
+
         self._inspector.set_step(0)
 
         self._bottom.set_status(f"Loaded {n} frame{'s' if n != 1 else ''}")
         logger.info("Stack loaded: shape %s", stack.shape)
 
-        # Auto-dispatch star detection on the first frame
         self._dispatch_star_detection(stack[0])
 
     def _dispatch_star_detection(self, frame: object) -> None:
@@ -611,6 +593,7 @@ class MainWindow(QMainWindow):
         self.session.detected_stars = stars
         self._canvas.display_stars(stars)
         n_stars = len(stars) if stars is not None else 0
+        self._star_table.populate_detected(n_stars)
         self._bottom.set_status(f"Detected {n_stars} stars")
         logger.info("Star detection complete: %d sources", n_stars)
 
@@ -671,29 +654,10 @@ class MainWindow(QMainWindow):
                 self._bottom.set_status("Playing…")
 
     # ------------------------------------------------------------------
-    # Pipeline step switching
-    # ------------------------------------------------------------------
-
-    def _set_pipeline_step(self, index: int) -> None:
-        index = max(0, min(index, 3))
-        self._current_step = index
-        self._stepper.set_active_step(index)
-        self._inspector.set_step(index)
-
-        if index == 2:
-            # Photometry step: show PhotometryPanel + LightCurvePanel
-            self._right_stack.setCurrentIndex(1)
-            self._lc_panel.setVisible(True)
-        else:
-            self._right_stack.setCurrentIndex(0)
-            self._lc_panel.setVisible(False)
-
-    # ------------------------------------------------------------------
     # Star interaction
     # ------------------------------------------------------------------
 
     def _on_star_clicked(self, x: float, y: float) -> None:
-        """Handle a canvas click in select_target or select_comparison mode."""
         mode  = self._canvas._interaction_mode
         stars = self.session.detected_stars
 
@@ -707,11 +671,10 @@ class MainWindow(QMainWindow):
             else:
                 self.session.target_xy = (x, y)
                 self.session.target_star_row = None
+
+            self._star_table.set_target(self.session.target_xy)
             self._phot_panel.set_target(self.session.target_xy)
-            self._canvas.set_target(
-                self.session.target_xy,
-                self.session.comparison_xys,
-            )
+            self._canvas.set_target(self.session.target_xy, self.session.comparison_xys)
             self._canvas.set_interaction_mode("none")
 
         elif mode == "select_comparison":
@@ -727,33 +690,102 @@ class MainWindow(QMainWindow):
                 self.session.comparison_xys.append(pos)
                 if row is not None:
                     self.session.comparison_star_rows.append(row)
+
+            self._star_table.set_comparisons(self.session.comparison_xys)
             self._phot_panel.set_comparisons(self.session.comparison_xys)
-            self._canvas.set_target(
-                self.session.target_xy,
-                self.session.comparison_xys,
-            )
+            self._canvas.set_target(self.session.target_xy, self.session.comparison_xys)
             self._canvas.set_interaction_mode("none")
 
     # ------------------------------------------------------------------
-    # Plate solve → catalog pipeline
+    # Clear handlers
     # ------------------------------------------------------------------
 
+    def _on_target_cleared(self) -> None:
+        self.session.target_xy = None
+        self.session.target_star_row = None
+        self.session.comparison_xys = []
+        self.session.comparison_star_rows = []
+        if self.session.detected_stars is not None:
+            self._canvas.display_stars(
+                self.session.detected_stars,
+                target_xy=None,
+                comparison_xys=[],
+            )
+        else:
+            self._canvas.clear_star_overlay()
+        self._star_table.clear_target()
+        self._star_table.clear_comparisons()
+        self._phot_panel.clear_target()
+        self._phot_panel.clear_comparison_stars()
+
+    def _on_comparisons_cleared(self) -> None:
+        self.session.comparison_xys = []
+        self.session.comparison_star_rows = []
+        if self.session.detected_stars is not None:
+            self._canvas.display_stars(
+                self.session.detected_stars,
+                target_xy=self.session.target_xy,
+                comparison_xys=[],
+            )
+        self._star_table.clear_comparisons()
+        self._phot_panel.clear_comparison_stars()
+
+    def _on_aperture_changed(self, radius: float, inner: float, outer: float) -> None:
+        self._canvas.set_aperture_params(radius, inner, outer)
+
+    # ------------------------------------------------------------------
+    # Plate solve
+    # ------------------------------------------------------------------
+
+    def _on_solve_requested(self) -> None:
+        """Triggered by MetricsPane 'Solve Field' button."""
+        self._metrics_pane.set_solving_state(True)
+        self._badge_bar.set_stage_active(1)
+        self._bottom.set_status("Plate solving…")
+        # Delegate to the inspector's internal solve logic
+        self._inspector._run_solve()  # type: ignore[attr-defined]
+
     def _on_solve_complete(self, wcs: object) -> None:
-        """Handle a successful plate solve: advance stepper, query catalogs."""
-        self._stepper.set_step_complete(1)
-        self._stepper.set_active_step(1)
+        self._metrics_pane.set_solving_state(False)
+        self._badge_bar.set_stage_complete(1)
+        self._badge_bar.set_stage_active(2)
         self._bottom.set_status("Plate solved — querying catalogs…")
         logger.info("Plate solve complete; dispatching catalog queries.")
+
+        # Update MetricsPane with WCS info
+        self._update_metrics_wcs(wcs)
+
         self._dispatch_catalog_query(wcs)
 
+    def _update_metrics_wcs(self, wcs: object) -> None:
+        """Extract RA/Dec/scale from WCS and push to MetricsPane."""
+        try:
+            from astropy.wcs.utils import proj_plane_pixel_scales
+            import astropy.units as u
+            import numpy as np
+
+            h = getattr(wcs, "array_shape", None) or (0, 0)
+            cy, cx = (h[0] / 2, h[1] / 2) if h[0] else (0, 0)
+            sky = wcs.pixel_to_world(cx, cy)  # type: ignore[attr-defined]
+            ra_str  = sky.ra.to_string(unit=u.hour, sep="hms", precision=2)   # type: ignore[attr-defined]
+            dec_str = sky.dec.to_string(sep="°'\"", precision=1, alwayssign=True)  # type: ignore[attr-defined]
+
+            scales = proj_plane_pixel_scales(wcs)  # type: ignore[arg-type]
+            scale_arcsec = float(np.mean(scales) * 3600)
+            scale_str = f"{scale_arcsec:.3f} ″/px"
+
+            rotation = getattr(wcs.wcs, "crota", None)  # type: ignore[attr-defined]
+            rot_str = f"PA {float(rotation[1]):.1f}°" if rotation is not None else ""
+
+            self._metrics_pane.update_wcs(ra_str, dec_str, scale_str, rot_str)
+            self._metrics_pane.set_subtitle(f"ASTAP · WCS loaded  {rot_str}".strip())
+        except Exception as exc:
+            logger.debug("MetricsPane WCS update failed: %s", exc)
+
     def _dispatch_catalog_query(self, wcs: object) -> None:
-        """Dispatch off-thread catalog queries for the solved field."""
-        from photon.core.settings_manager import get_settings_manager as _gsm
         from photon.workers.catalog_worker import CatalogWorker
-
-        sm = _gsm()
+        sm = get_settings_manager()
         radius = float(sm.get("catalog/search_radius_arcmin"))
-
         worker = CatalogWorker(wcs=wcs, radius_arcmin=radius)
         worker.signals.result.connect(self._on_catalog_results)
         worker.signals.error.connect(
@@ -762,9 +794,7 @@ class MainWindow(QMainWindow):
         QThreadPool.globalInstance().start(worker)
 
     def _on_catalog_results(self, results: dict) -> None:
-        """Store catalog results, update overlay, and annotate comparisons."""
         import math
-
         self.session.catalog_matches = results
 
         n_simbad = len(results.get("simbad") or [])
@@ -779,23 +809,19 @@ class MainWindow(QMainWindow):
             self._canvas.display_catalog_overlay(self.session.wcs, results)
             self._canvas.toggle_catalog_overlay(self._catalog_toggle_btn.isChecked())
 
-        # Annotate comparison stars with catalog names where match < 5px
         self._update_comparison_catalog_names(results)
 
     def _update_comparison_catalog_names(self, results: dict) -> None:
-        """Find catalog names within 5px of each comparison star and update panel."""
         import numpy as np
         from astropy.coordinates import SkyCoord
         import astropy.units as u
 
-        wcs = self.session.wcs
+        wcs      = self.session.wcs
         comp_xys = self.session.comparison_xys
         if wcs is None or not comp_xys:
             return
 
         name_map: dict[int, str] = {}
-
-        # Build combined SIMBAD + VSX name lookup (RA/Dec in degrees + name)
         cat_ra:   list[float] = []
         cat_dec:  list[float] = []
         cat_name: list[str]   = []
@@ -812,7 +838,6 @@ class MainWindow(QMainWindow):
                 try:
                     ra_v  = ra_col[i]
                     dec_v = dec_col[i]
-                    # SIMBAD stores sexagesimal strings
                     if isinstance(ra_v, (bytes, str)):
                         sc = SkyCoord(str(ra_v), str(dec_v), unit=(u.hourangle, u.deg))
                         cat_ra.append(float(sc.ra.deg))
@@ -832,7 +857,6 @@ class MainWindow(QMainWindow):
 
         try:
             cat_coords = SkyCoord(cat_ra_arr, cat_dec_arr, unit=u.deg)
-            # Convert catalog positions to pixels
             cat_xs, cat_ys = wcs.world_to_pixel(cat_coords)
             cat_xs = np.asarray(cat_xs, dtype=float)
             cat_ys = np.asarray(cat_ys, dtype=float)
@@ -840,20 +864,19 @@ class MainWindow(QMainWindow):
             return
 
         MATCH_RADIUS_PX = 5.0
-
         for c_idx, (cx, cy) in enumerate(comp_xys):
-            dx = cat_xs - cx
-            dy = cat_ys - cy
+            dx   = cat_xs - cx
+            dy   = cat_ys - cy
             dist = np.sqrt(dx * dx + dy * dy)
             best = int(np.argmin(dist))
             if dist[best] < MATCH_RADIUS_PX:
                 name_map[c_idx] = cat_name[best]
 
         if name_map:
+            self._star_table.update_comparison_catalog_names(name_map)
             self._phot_panel.update_comparison_catalog_names(name_map)
 
     def _auto_select_comparisons(self) -> None:
-        """Auto-select comparison stars using star detection results."""
         stars = self.session.detected_stars
         txy   = self.session.target_xy
         if stars is None or txy is None:
@@ -867,8 +890,7 @@ class MainWindow(QMainWindow):
             else None
         )
         comps = select_comparison_stars(
-            stars,
-            txy[0], txy[1],
+            stars, txy[0], txy[1],
             min_snr=sm.get("photometry/min_comparison_snr"),
             max_stars=sm.get("photometry/max_comparison_stars"),
             image_shape=image_shape,
@@ -879,43 +901,10 @@ class MainWindow(QMainWindow):
             for i in range(len(comps))
         ]
         self.session.comparison_xys = xys
+        self._star_table.set_comparisons(xys)
         self._phot_panel.set_comparisons(xys)
         self._canvas.set_target(self.session.target_xy, xys)
         self._bottom.set_status(f"Auto-selected {len(xys)} comparison stars.")
-
-    def _on_target_cleared(self) -> None:
-        """Handle target Clear button — wipe session state and redraw."""
-        self.session.target_xy = None
-        self.session.target_star_row = None
-        self.session.comparison_xys = []
-        self.session.comparison_star_rows = []
-        if self.session.detected_stars is not None:
-            self._canvas.display_stars(
-                self.session.detected_stars,
-                target_xy=None,
-                comparison_xys=[],
-            )
-        else:
-            self._canvas.clear_star_overlay()
-        self._phot_panel.clear_comparison_stars()
-        self._phot_panel.clear_target()
-
-    def _on_comparisons_cleared(self) -> None:
-        """Handle comparison Clear all button — wipe comparison state and redraw."""
-        self.session.comparison_xys = []
-        self.session.comparison_star_rows = []
-        if self.session.detected_stars is not None:
-            self._canvas.display_stars(
-                self.session.detected_stars,
-                target_xy=self.session.target_xy,
-                comparison_xys=[],
-            )
-        self._phot_panel.clear_comparison_stars()
-
-    def _on_aperture_changed(
-        self, radius: float, inner: float, outer: float
-    ) -> None:
-        self._canvas.set_aperture_params(radius, inner, outer)
 
     # ------------------------------------------------------------------
     # Photometry
@@ -929,10 +918,12 @@ class MainWindow(QMainWindow):
         ):
             return
 
+        self._star_table.set_running(True)
         self._phot_panel.set_running(True)
+        self._badge_bar.set_stage_active(2)
         self._bottom.set_status("Running photometry…")
 
-        ap_r, ann_in, ann_out = self._phot_panel.get_aperture_params()
+        ap_r, ann_in, ann_out = self._star_table.get_aperture_params()
 
         obs_times = None
         try:
@@ -956,9 +947,11 @@ class MainWindow(QMainWindow):
         QThreadPool.globalInstance().start(worker)
 
     def _on_phot_worker_done(self, payload: object) -> None:
+        # Let the hidden PhotometryPanel process the result and emit photometry_complete
         self._phot_panel.on_photometry_done(payload)  # type: ignore[arg-type]
 
     def _on_phot_error(self, traceback_str: str) -> None:
+        self._star_table.set_running(False)
         self._phot_panel.set_running(False)
         last_line = traceback_str.strip().splitlines()[-1]
         self._bottom.set_status(f"Photometry error: {last_line}")
@@ -966,23 +959,31 @@ class MainWindow(QMainWindow):
         QMessageBox.critical(self, "Photometry Error", last_line)
 
     def _on_photometry_complete(self, result: dict) -> None:
-        """Store results and update light curve panel."""
         self.session.photometry_result = result.get("photometry")
         lc = result.get("light_curve")
         self.session.light_curve = lc
+
+        self._star_table.set_running(False)
+
+        # Update MetricsPane photometry cells
+        phot = result.get("photometry") or {}
+        scatter = phot.get("scatter", 0.0)
+        flux    = phot.get("target_flux", None)
+        mag     = phot.get("diff_mag",    None)
+        flux_str   = f"{flux:.0f}"   if flux   is not None else "—"
+        mag_str    = f"{mag:.4f}"    if mag    is not None else "—"
+        scatter_str = f"{scatter:.4f}"
+        self._metrics_pane.update_photometry(flux_str, mag_str, scatter_str)
 
         if lc is not None:
             self._lc_panel.update_light_curve(lc)
             self._lc_panel.setVisible(True)
 
-        scatter = (result.get("photometry") or {}).get("scatter", 0.0)
+        self._badge_bar.set_stage_complete(2)
+        self._badge_bar.set_stage_active(3)
         self._bottom.set_status(f"Photometry complete — scatter {scatter:.4f} mag")
-        self._stepper.set_step_complete(2)
-        self._stepper.set_active_step(3)
-        self._set_pipeline_step(3)
 
     def _on_frame_flagged(self, frame_index: int, flagged: bool) -> None:
-        """Update session frame flags when the user flags/unflags a frame."""
         import numpy as np
         if self.session.image_stack is None:
             return

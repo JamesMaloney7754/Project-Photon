@@ -1,4 +1,4 @@
-"""Deep Field design system — single source of truth for all UI tokens.
+"""Cockpit design system — single source of truth for all UI tokens.
 
 Every color, font size, and spacing value used anywhere in ``photon/ui/`` must
 reference a constant from this module.  No hardcoded hex values are permitted
@@ -12,64 +12,73 @@ from PySide6.QtWidgets import QApplication
 
 
 class Colors:
-    """Color palette for the Deep Field theme."""
+    """Color palette for the Cockpit theme (deep navy + red accent)."""
 
-    # Backgrounds — deep space gradient system
-    BASE_CENTER     = "#0a0f1a"   # Deep navy — radial gradient center
-    BASE_EDGE       = "#060810"   # Near black — radial gradient edge
+    # ── Backgrounds ────────────────────────────────────────────────────────
+    BACKGROUND    = "#080a13"   # body fill
+    BG_PANEL      = "#11131f"   # panel surfaces
+    BG_PANEL_2    = "#161826"   # hover / raised surfaces
+    BG_TITLEBAR   = "#0a0c16"   # top bar, foot bar
 
-    # Panel surfaces — glass effect
-    GLASS_BG        = "rgba(255, 255, 255, 12)"
-    GLASS_BORDER_LT = "rgba(255, 255, 255, 30)"
-    GLASS_BORDER_DK = "rgba(255, 255, 255, 6)"
-    GLASS_SURFACE   = "#111827"
+    # ── Borders ────────────────────────────────────────────────────────────
+    BORDER        = "#1e2238"
+    BORDER_2      = "#272b44"
 
-    SURFACE         = "#111827"
-    SURFACE_ALT     = "#1a2235"
-    SURFACE_RAISED  = "#1f2d45"
-    BORDER          = "#1e2d45"
-    BORDER_SUBTLE   = "#152032"
+    # ── Foreground / text ──────────────────────────────────────────────────
+    FG            = "#e7ecf5"   # primary text
+    FG_2          = "#a5b4cb"   # secondary text
+    FG_3          = "#7d8ba8"   # muted labels
+    FG_4          = "#525a78"   # disabled / very muted
 
-    # Accents — red (actions / navigation)
+    # ── Accents ────────────────────────────────────────────────────────────
+    ACCENT        = "#dc2626"   # red  — actions, active states, borders
+    ACCENT_DIM    = "#991b1b"   # darker red  — pressed states
+    AMBER         = "#F59E0B"   # gold — data values, measurements, target dot
+
+    # ── Semantic ───────────────────────────────────────────────────────────
+    SUCCESS       = "#10b981"
+    DANGER        = "#ef4444"
+    WARNING       = "#F59E0B"
+
+    # ── Canvas ─────────────────────────────────────────────────────────────
+    CANVAS_BG     = "#04060d"
+
+    # ── Legacy aliases — keep existing callers working ─────────────────────
     VIOLET          = "#dc2626"
     VIOLET_BRIGHT   = "#ef4444"
     VIOLET_GLOW     = "rgba(220, 38, 38, 40)"
     VIOLET_DIM      = "rgba(220, 38, 38, 20)"
-
     BLUE            = "#b91c1c"
     BLUE_GLOW       = "rgba(185, 28, 28, 30)"
-
-    # Science data accent — gold/amber for measurements and values
-    GOLD            = "#f59e0b"
+    GOLD            = "#F59E0B"
     GOLD_DIM        = "rgba(245, 158, 11, 20)"
-
-    SUCCESS         = "#10b981"
-    SUCCESS_GLOW    = "rgba(16, 185, 129, 30)"
-    WARNING         = "#f59e0b"
-    DANGER          = "#ef4444"
-
-    # Text
-    TEXT_PRIMARY    = "#f0f4ff"   # Slightly blue-tinted white
-    TEXT_SECONDARY  = "#6b7fa3"   # Muted blue-grey
-    TEXT_DISABLED   = "#2d3f5c"
-    TEXT_GOLD       = "#fbbf24"   # Science values
-    TEXT_ACCENT     = "#f87171"   # Light red highlights
-
-    # Canvas
-    CANVAS_BG       = "#04060d"
-
-    # Legacy aliases — keep old callers working
-    ACCENT_PRIMARY   = VIOLET
-    ACCENT_SECONDARY = BLUE
-    ACCENT_SUCCESS   = SUCCESS
-    ACCENT_WARNING   = WARNING
-    ACCENT_DANGER    = DANGER
-    BASE             = BASE_CENTER
-    BORDER_FOCUS     = "#388bfd"
+    TEXT_PRIMARY    = "#e7ecf5"
+    TEXT_SECONDARY  = "#7d8ba8"
+    TEXT_DISABLED   = "#525a78"
+    TEXT_GOLD       = "#F59E0B"
+    TEXT_ACCENT     = "#f87171"
+    SURFACE         = "#11131f"
+    SURFACE_ALT     = "#161826"
+    SURFACE_RAISED  = "#161826"
+    GLASS_SURFACE   = "#11131f"
+    GLASS_BG        = "rgba(255, 255, 255, 12)"
+    GLASS_BORDER_LT = "rgba(255, 255, 255, 30)"
+    GLASS_BORDER_DK = "rgba(255, 255, 255, 6)"
+    BASE_CENTER     = "#080a13"
+    BASE_EDGE       = "#060810"
+    BASE            = "#080a13"
+    BORDER_FOCUS    = "#dc2626"
+    BORDER_SUBTLE   = "#1e2238"
+    ACCENT_PRIMARY   = "#dc2626"
+    ACCENT_SECONDARY = "#b91c1c"
+    ACCENT_SUCCESS   = "#10b981"
+    ACCENT_WARNING   = "#F59E0B"
+    ACCENT_DANGER    = "#ef4444"
+    SUCCESS_GLOW     = "rgba(16, 185, 129, 30)"
 
 
 class Typography:
-    """Typography scale for the Deep Field theme."""
+    """Typography scale for the Cockpit theme."""
 
     FONT_UI      = "Inter, 'Segoe UI Variable', 'Segoe UI', sans-serif"
     FONT_MONO    = "'JetBrains Mono', 'Cascadia Code', Consolas, monospace"
@@ -91,34 +100,28 @@ class Typography:
 
 
 def build_stylesheet() -> str:
-    """Return the complete Qt stylesheet for the Deep Field theme.
-
-    Returns
-    -------
-    str
-        A Qt-compatible CSS stylesheet string.
-    """
+    """Return the complete Qt stylesheet for the Cockpit theme."""
     C = Colors
     T = Typography
     return f"""
 
-/* ── Base ──────────────────────────────────────────────────────────────── */
+/* ── Base ─────────────────────────────────────────────────────────── */
 QMainWindow, QWidget {{
-    background-color: {C.BASE_CENTER};
-    color: {C.TEXT_PRIMARY};
+    background-color: {C.BACKGROUND};
+    color: {C.FG};
     font-family: Inter, "Segoe UI Variable", "Segoe UI", sans-serif;
     font-size: {T.SIZE_BASE}px;
     border: none;
 }}
 
-/* ── Glass panel ────────────────────────────────────────────────────────── */
-QWidget#glass_panel {{
-    background-color: {C.GLASS_SURFACE};
-    border: 1px solid rgba(255, 255, 255, 20);
-    border-radius: 12px;
+/* ── Glass / cockpit pane ─────────────────────────────────────────── */
+QWidget#glass_panel, QWidget#cockpit_pane {{
+    background-color: {C.BG_PANEL};
+    border: 1px solid {C.BORDER};
+    border-radius: 6px;
 }}
 
-/* ── Splitter ───────────────────────────────────────────────────────────── */
+/* ── Splitter ─────────────────────────────────────────────────────── */
 QSplitter {{
     background-color: transparent;
 }}
@@ -132,128 +135,127 @@ QSplitter::handle:vertical {{
     height: 1px;
 }}
 QSplitter::handle:hover {{
-    background-color: {C.VIOLET};
+    background-color: {C.ACCENT};
 }}
 
-/* ── List Widget ────────────────────────────────────────────────────────── */
+/* ── List Widget ──────────────────────────────────────────────────── */
 QListWidget {{
     background-color: transparent;
     border: none;
     outline: none;
-    padding: 4px 0;
+    padding: 2px 0;
 }}
 QListWidget::item {{
-    padding: 8px 12px;
-    border-radius: 6px;
-    color: {C.TEXT_PRIMARY};
+    padding: 6px 10px;
+    border-radius: 4px;
+    color: {C.FG};
     border-left: 2px solid transparent;
 }}
 QListWidget::item:hover {{
-    background-color: rgba(255, 255, 255, 10);
+    background-color: rgba(255, 255, 255, 6);
 }}
 QListWidget::item:selected {{
-    background-color: {C.VIOLET_DIM};
-    border-left: 2px solid {C.VIOLET};
+    background-color: rgba(220, 38, 38, 15);
+    border-left: 2px solid {C.ACCENT};
 }}
 QListWidget::item:focus {{
     outline: none;
 }}
 
-/* ── Labels ─────────────────────────────────────────────────────────────── */
+/* ── Labels ───────────────────────────────────────────────────────── */
 QLabel {{
-    color: {C.TEXT_PRIMARY};
+    color: {C.FG};
     background-color: transparent;
 }}
 
-/* ── Push Buttons ───────────────────────────────────────────────────────── */
+/* ── Push Buttons ─────────────────────────────────────────────────── */
 QPushButton {{
-    background-color: {C.VIOLET};
-    color: {C.TEXT_PRIMARY};
+    background-color: {C.ACCENT};
+    color: {C.FG};
     border: none;
-    border-radius: 8px;
-    padding: 8px 18px;
+    border-radius: 6px;
+    padding: 7px 16px;
     font-size: {T.SIZE_MD}px;
     font-weight: {T.WEIGHT_MEDIUM};
 }}
 QPushButton:hover {{
-    background-color: {C.VIOLET_BRIGHT};
-    border-top: 1px solid rgba(255, 255, 255, 50);
+    background-color: {C.DANGER};
 }}
 QPushButton:pressed {{
-    background-color: #991b1b;
+    background-color: {C.ACCENT_DIM};
 }}
 QPushButton:disabled {{
-    background-color: {C.SURFACE_RAISED};
+    background-color: {C.BG_PANEL_2};
     color: {C.TEXT_DISABLED};
 }}
 QPushButton[flat="true"] {{
     background-color: transparent;
-    border: 1px solid {C.BORDER};
-    border-radius: 8px;
-    color: {C.TEXT_PRIMARY};
+    border: 1px solid {C.BORDER_2};
+    border-radius: 6px;
+    color: {C.FG_2};
 }}
 QPushButton[flat="true"]:hover {{
-    background-color: rgba(255, 255, 255, 13);
-    border-color: {C.VIOLET};
+    background-color: rgba(255, 255, 255, 6);
+    border-color: {C.ACCENT};
+    color: {C.FG};
 }}
 QPushButton[flat="true"]:pressed {{
-    background-color: rgba(220, 38, 38, 20);
+    background-color: rgba(220, 38, 38, 15);
 }}
 
-/* ── Tool Buttons ───────────────────────────────────────────────────────── */
+/* ── Tool Buttons ─────────────────────────────────────────────────── */
 QToolButton {{
     background-color: transparent;
     border: none;
-    color: {C.TEXT_PRIMARY};
+    color: {C.FG};
     padding: 4px 8px;
-    border-radius: 6px;
+    border-radius: 4px;
 }}
 QToolButton:hover {{
-    background-color: rgba(255, 255, 255, 10);
+    background-color: rgba(255, 255, 255, 6);
 }}
 QToolButton::menu-indicator {{
     image: none;
 }}
 
-/* ── Menus ──────────────────────────────────────────────────────────────── */
+/* ── Menus ────────────────────────────────────────────────────────── */
 QMenu {{
-    background-color: {C.SURFACE_RAISED};
-    border: 1px solid rgba(255, 255, 255, 20);
-    border-radius: 10px;
-    padding: 6px 0;
-    color: {C.TEXT_PRIMARY};
+    background-color: {C.BG_PANEL};
+    border: 1px solid {C.BORDER};
+    border-radius: 8px;
+    padding: 4px 0;
+    color: {C.FG};
 }}
 QMenu::item {{
-    padding: 7px 24px 7px 14px;
-    border-radius: 6px;
-    margin: 1px 6px;
+    padding: 6px 20px 6px 12px;
+    border-radius: 4px;
+    margin: 1px 4px;
 }}
 QMenu::item:selected {{
-    background-color: {C.VIOLET};
-    color: {C.TEXT_PRIMARY};
+    background-color: {C.ACCENT};
+    color: {C.FG};
 }}
 QMenu::separator {{
     height: 1px;
     background-color: {C.BORDER};
-    margin: 4px 10px;
+    margin: 3px 8px;
 }}
 
-/* ── Scroll Bars ────────────────────────────────────────────────────────── */
+/* ── Scroll Bars ──────────────────────────────────────────────────── */
 QScrollBar:vertical {{
     background-color: transparent;
     width: 4px;
     border: none;
 }}
 QScrollBar::handle:vertical {{
-    background-color: rgba(255, 255, 255, 30);
+    background-color: {C.BORDER_2};
     border-radius: 2px;
     min-height: 20px;
 }}
 QScrollBar::handle:vertical:hover {{
-    background-color: {C.VIOLET};
+    background-color: {C.ACCENT};
 }}
-QScrollBar::add-line:vertical,
-QScrollBar::sub-line:vertical {{
+QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{
     height: 0px;
 }}
 QScrollBar:horizontal {{
@@ -262,52 +264,50 @@ QScrollBar:horizontal {{
     border: none;
 }}
 QScrollBar::handle:horizontal {{
-    background-color: rgba(255, 255, 255, 30);
+    background-color: {C.BORDER_2};
     border-radius: 2px;
     min-width: 20px;
 }}
 QScrollBar::handle:horizontal:hover {{
-    background-color: {C.VIOLET};
+    background-color: {C.ACCENT};
 }}
-QScrollBar::add-line:horizontal,
-QScrollBar::sub-line:horizontal {{
+QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {{
     width: 0px;
 }}
 
-/* ── Sliders ────────────────────────────────────────────────────────────── */
+/* ── Sliders ──────────────────────────────────────────────────────── */
 QSlider::groove:horizontal {{
     height: 3px;
     background-color: {C.BORDER};
     border-radius: 2px;
 }}
 QSlider::handle:horizontal {{
-    background-color: {C.VIOLET};
-    border: 2px solid {C.VIOLET_BRIGHT};
-    width: 14px;
-    height: 14px;
-    border-radius: 7px;
-    margin: -6px 0;
+    background-color: {C.ACCENT};
+    border: 2px solid {C.ACCENT};
+    width: 12px;
+    height: 12px;
+    border-radius: 6px;
+    margin: -5px 0;
 }}
 QSlider::handle:horizontal:hover {{
-    background-color: {C.VIOLET_BRIGHT};
-    border: 2px solid white;
+    background-color: {C.DANGER};
 }}
 QSlider::sub-page:horizontal {{
-    background-color: {C.VIOLET};
+    background-color: {C.ACCENT};
     border-radius: 2px;
 }}
 
-/* ── Tooltips ───────────────────────────────────────────────────────────── */
+/* ── Tooltips ─────────────────────────────────────────────────────── */
 QToolTip {{
-    background-color: {C.SURFACE_RAISED};
-    color: {C.TEXT_PRIMARY};
-    border: 1px solid rgba(255, 255, 255, 30);
-    border-radius: 6px;
-    padding: 6px 10px;
+    background-color: {C.BG_PANEL};
+    color: {C.FG};
+    border: 1px solid {C.BORDER_2};
+    border-radius: 4px;
+    padding: 4px 8px;
     font-size: {T.SIZE_SM}px;
 }}
 
-/* ── Progress Bar ───────────────────────────────────────────────────────── */
+/* ── Progress Bar ─────────────────────────────────────────────────── */
 QProgressBar {{
     background-color: {C.BORDER};
     border: none;
@@ -315,28 +315,80 @@ QProgressBar {{
     height: 3px;
 }}
 QProgressBar::chunk {{
-    background-color: qlineargradient(x1:0, y1:0, x2:1, y2:0,
-        stop:0 {C.VIOLET}, stop:1 {C.BLUE});
+    background-color: {C.ACCENT};
     border-radius: 2px;
 }}
 
-/* ── Line Edit ──────────────────────────────────────────────────────────── */
+/* ── Line Edit ────────────────────────────────────────────────────── */
 QLineEdit {{
-    background-color: {C.SURFACE};
-    color: {C.TEXT_PRIMARY};
+    background-color: {C.BG_PANEL};
+    color: {C.FG};
     border: 1px solid {C.BORDER};
-    border-radius: 6px;
-    padding: 5px 10px;
-    selection-background-color: {C.VIOLET};
+    border-radius: 4px;
+    padding: 4px 8px;
+    selection-background-color: {C.ACCENT};
 }}
 QLineEdit:focus {{
-    border-color: {C.VIOLET};
+    border-color: {C.ACCENT};
 }}
 QLineEdit:disabled {{
     color: {C.TEXT_DISABLED};
 }}
 
-/* ── Scroll Area ────────────────────────────────────────────────────────── */
+/* ── Spin Boxes ───────────────────────────────────────────────────── */
+QDoubleSpinBox, QSpinBox {{
+    background-color: {C.BG_PANEL};
+    color: {C.FG};
+    border: 1px solid {C.BORDER};
+    border-radius: 4px;
+    padding: 3px 6px;
+    selection-background-color: {C.ACCENT};
+}}
+QDoubleSpinBox:focus, QSpinBox:focus {{
+    border-color: {C.ACCENT};
+}}
+QDoubleSpinBox::up-button, QDoubleSpinBox::down-button,
+QSpinBox::up-button, QSpinBox::down-button {{
+    background-color: transparent;
+    border: none;
+    width: 14px;
+}}
+
+/* ── Table Widget ─────────────────────────────────────────────────── */
+QTableWidget {{
+    background-color: transparent;
+    gridline-color: transparent;
+    border: none;
+    outline: none;
+    color: {C.FG};
+    alternate-background-color: rgba(22, 24, 38, 60);
+}}
+QTableWidget::item {{
+    padding: 3px 6px;
+    border: none;
+    border-bottom: 1px solid {C.BORDER};
+}}
+QTableWidget::item:selected {{
+    background-color: rgba(220, 38, 38, 18);
+    color: {C.FG};
+}}
+QHeaderView::section {{
+    background-color: transparent;
+    color: {C.FG_4};
+    border: none;
+    border-bottom: 1px solid {C.BORDER};
+    padding: 3px 6px;
+    font-size: {T.SIZE_XS}px;
+    font-weight: {T.WEIGHT_SEMIBOLD};
+    letter-spacing: 1px;
+    text-transform: uppercase;
+}}
+QHeaderView {{
+    background-color: transparent;
+    border: none;
+}}
+
+/* ── Scroll Area ──────────────────────────────────────────────────── */
 QScrollArea {{
     background-color: transparent;
     border: none;
@@ -345,7 +397,7 @@ QScrollArea > QWidget > QWidget {{
     background-color: transparent;
 }}
 
-/* ── Frame / Separator ──────────────────────────────────────────────────── */
+/* ── Frame / Separator ────────────────────────────────────────────── */
 QFrame[frameShape="4"],
 QFrame[frameShape="HLine"] {{
     color: {C.BORDER};
@@ -354,11 +406,43 @@ QFrame[frameShape="HLine"] {{
     max-height: 1px;
 }}
 
+/* ── Plain Text Edit ──────────────────────────────────────────────── */
+QPlainTextEdit {{
+    background-color: {C.BG_PANEL};
+    color: {C.FG_2};
+    border: 1px solid {C.BORDER};
+    border-radius: 4px;
+    padding: 4px;
+    font-size: {T.SIZE_XS}px;
+}}
+
+/* ── Dialog ───────────────────────────────────────────────────────── */
+QDialog {{
+    background-color: {C.BG_PANEL};
+}}
+
+/* ── Tab Widget ───────────────────────────────────────────────────── */
+QTabWidget::pane {{
+    background-color: {C.BG_PANEL};
+    border: 1px solid {C.BORDER};
+    border-radius: 6px;
+}}
+QTabBar::tab {{
+    background-color: transparent;
+    color: {C.FG_3};
+    padding: 6px 14px;
+    border-bottom: 2px solid transparent;
+}}
+QTabBar::tab:selected {{
+    color: {C.ACCENT};
+    border-bottom-color: {C.ACCENT};
+}}
+
 """
 
 
 def apply_theme(app: QApplication) -> None:
-    """Apply the Deep Field theme to *app*.
+    """Apply the Cockpit theme to *app*.
 
     Parameters
     ----------

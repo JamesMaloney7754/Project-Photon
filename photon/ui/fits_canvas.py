@@ -232,6 +232,7 @@ class FitsCanvas(QWidget):
         self._image_obj: Any = None
         self._stretch: str = "asinh"
         self._current_image: Any = None  # last displayed data; None when empty
+        self._hud_artists: list[Any] = []  # HUD text overlays
 
         # Resize debounce — defer canvas redraw 150 ms after the last resize event
         self._resize_timer = QTimer(self)
@@ -283,18 +284,14 @@ class FitsCanvas(QWidget):
         self._ax.set_xticks([])
         self._ax.set_yticks([])
 
-        title = ""
-        if header is not None:
-            obj  = header.get("OBJECT", "")
-            filt = header.get("FILTER", "")
-            parts = [p for p in (obj, filt) if p]
-            title = "  |  ".join(parts)
-        self._ax.set_title(
-            title, color=Colors.TEXT_SECONDARY,
-            fontsize=Typography.SIZE_XS, pad=4
-        )
+        # Remove matplotlib title — HUD is drawn by update_hud() instead
+        self._ax.set_title("")
 
         self._stack.setCurrentIndex(1)
+
+        # Update HUD overlay
+        if header is not None:
+            self.update_hud(header=header)
         self._mpl_canvas.draw_idle()
 
         # Fade in on first display
@@ -315,7 +312,67 @@ class FitsCanvas(QWidget):
         self._clear_catalog_artists()
         self._target_xy = None
         self._comparison_xys.clear()
+        self._hud_artists.clear()
         self._stack.setCurrentIndex(0)
+
+    # ------------------------------------------------------------------
+    # HUD overlay
+    # ------------------------------------------------------------------
+
+    def update_hud(
+        self,
+        wcs: Any = None,
+        header: Any = None,
+    ) -> None:
+        """Render a minimal HUD text overlay on the image axes.
+
+        Parameters
+        ----------
+        wcs : astropy.wcs.WCS | None
+            If provided, centre RA/Dec is shown.
+        header : astropy.io.fits.Header | None
+            If provided, OBJECT and FILTER are shown top-left.
+        """
+        # Remove previous HUD artists
+        for art in self._hud_artists:
+            try:
+                art.remove()
+            except Exception:
+                pass
+        self._hud_artists.clear()
+
+        if self._image_obj is None:
+            return
+
+        ax = self._ax
+        xlim = ax.get_xlim()
+        ylim = ax.get_ylim()
+        x0, x1 = xlim
+        y0, y1 = ylim
+
+        kw_base = dict(
+            transform=ax.transData,
+            fontsize=7,
+            verticalalignment="top",
+        )
+
+        # Top-left: OBJECT + FILTER from header
+        if header is not None:
+            obj  = str(header.get("OBJECT", "")).strip()
+            filt = str(header.get("FILTER", "")).strip()
+            parts = [p for p in (obj, filt) if p]
+            if parts:
+                label = "  ·  ".join(parts)
+                art = ax.text(
+                    x0 + (x1 - x0) * 0.01,
+                    y1 - (y1 - y0) * 0.01,
+                    label,
+                    color=Colors.FG_3,
+                    **kw_base,
+                )
+                self._hud_artists.append(art)
+
+        self._mpl_canvas.draw_idle()
 
     # ------------------------------------------------------------------
     # Catalog overlay
