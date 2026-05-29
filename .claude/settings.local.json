@@ -5,7 +5,8 @@
       "Bash(git add *)",
       "Bash(git push *)",
       "Bash(git tag *)",
-      "Bash(gh auth *)"
+      "Bash(gh auth *)",
+      "Bash(python -m pytest tests/ -v --tb=short)"
     ]
   }
 }
