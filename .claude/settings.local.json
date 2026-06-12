@@ -6,7 +6,12 @@
       "Bash(git push *)",
       "Bash(git tag *)",
       "Bash(gh auth *)",
-      "Bash(python -m pytest tests/ -v --tb=short)"
+      "Bash(python -m pytest tests/ -v --tb=short)",
+      "Bash(/opt/homebrew/Caskroom/miniconda/base/envs/photon/bin/python -c ' *)",
+      "Bash(python -c \"import PySide6; print\\(PySide6.__version__\\)\")",
+      "Bash(find /opt/anaconda3/envs /Users/james-thomasmaloney -maxdepth 5 -name \"PySide6\" -type d 2>/dev/null | head -5)",
+      "Bash(find /Users/james-thomasmaloney -maxdepth 8 -name \"PySide6\" -type d 2>/dev/null | head -5)",
+      "Bash(git commit -m 'fix: QPoint and QShortcut moved to correct PySide6 modules *)"
     ]
   }
 }
