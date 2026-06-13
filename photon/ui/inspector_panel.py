@@ -262,6 +262,7 @@ class InspectorPanel(GlassPanel):
     """
 
     solve_complete: _Signal = _Signal(object)
+    solve_error:    _Signal = _Signal(str)   # emits traceback string on failure
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -528,6 +529,7 @@ class InspectorPanel(GlassPanel):
         """Handle a solve failure."""
         self._solving = False
         self._show_solve_error(tb)
+        self.solve_error.emit(tb)
 
     def _show_solve_error(self, msg: str) -> None:
         """Display an error message with a retry button."""

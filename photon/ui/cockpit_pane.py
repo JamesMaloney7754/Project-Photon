@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Property, QPropertyAnimation, Qt
 from PySide6.QtGui import QColor, QFont, QPainter, QPen
 from PySide6.QtWidgets import QHBoxLayout, QSizePolicy, QVBoxLayout, QWidget
 
@@ -34,6 +34,19 @@ class CockpitPane(QWidget):
     _HEADER_H = 38
     _RADIUS   = 6
 
+    # ── Animated border property ───────────────────────────────────────────
+
+    def _get_border_color(self) -> str:
+        return self._border_color
+
+    def _set_border_color(self, v: str) -> None:
+        self._border_color = v
+        self.update()
+
+    border_color = Property(str, _get_border_color, _set_border_color)
+
+    # ──────────────────────────────────────────────────────────────────────
+
     def __init__(
         self,
         title: str = "",
@@ -41,8 +54,12 @@ class CockpitPane(QWidget):
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
-        self._title    = title
-        self._subtitle = subtitle
+        self._title        = title
+        self._subtitle     = subtitle
+        self._border_color = Colors.BORDER
+
+        self._flash_anim = QPropertyAnimation(self, b"border_color", self)
+        self._flash_anim.setDuration(600)
 
         # ── Outer layout ─────────────────────────────────────────────────
         outer = QVBoxLayout(self)
@@ -93,6 +110,13 @@ class CockpitPane(QWidget):
         """Return the header's right sub-layout for custom controls."""
         return self._header.right_layout()
 
+    def flash_highlight(self) -> None:
+        """Animate the border from BORDER → ACCENT → BORDER over 600 ms."""
+        self._flash_anim.stop()
+        self._flash_anim.setStartValue(Colors.ACCENT)
+        self._flash_anim.setEndValue(Colors.BORDER)
+        self._flash_anim.start()
+
     # ------------------------------------------------------------------
     # Paint — background + border
     # ------------------------------------------------------------------
@@ -108,7 +132,7 @@ class CockpitPane(QWidget):
         painter.setBrush(QColor(Colors.BG_PANEL))
         painter.drawRoundedRect(rect, r, r)
 
-        painter.setPen(QPen(QColor(Colors.BORDER), 1))
+        painter.setPen(QPen(QColor(self._border_color), 1))
         painter.setBrush(Qt.BrushStyle.NoBrush)
         painter.drawRoundedRect(rect, r, r)
 

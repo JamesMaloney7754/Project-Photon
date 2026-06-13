@@ -287,10 +287,11 @@ class MainWindow(QMainWindow):
         self._splitter.setStyleSheet("QSplitter { background-color: transparent; }")
 
         # Left: session sidebar wrapped in a CockpitPane
-        left_pane = CockpitPane(title="Sequence")
-        left_pane.set_content_widget(self._sidebar)
-        left_pane.setMinimumWidth(200)
-        left_pane.setMaximumWidth(280)
+        self._left_pane = CockpitPane(title="Sequence")
+        self._left_pane.set_content_widget(self._sidebar)
+        self._left_pane.setMinimumWidth(200)
+        self._left_pane.setMaximumWidth(280)
+        left_pane = self._left_pane  # alias for splitter.addWidget below
 
         # Center: vertical splitter — canvas / light curve
         self._v_splitter = QSplitter(Qt.Orientation.Vertical)
@@ -308,8 +309,9 @@ class MainWindow(QMainWindow):
         right_splitter.setStyleSheet("QSplitter { background-color: transparent; }")
 
         # Star table wrapped in a CockpitPane
-        star_pane = CockpitPane(title="Stars")
-        star_pane.set_content_widget(self._star_table)
+        self._star_pane = CockpitPane(title="Stars")
+        self._star_pane.set_content_widget(self._star_table)
+        star_pane = self._star_pane  # alias for splitter.addWidget below
 
         right_splitter.addWidget(self._metrics_pane)
         right_splitter.addWidget(star_pane)
@@ -404,12 +406,16 @@ class MainWindow(QMainWindow):
         self._sidebar.frame_selected.connect(self._show_frame)
         self._bottom.frame_scrubbed.connect(self._show_frame)
 
-        # Inspector (hidden) — handles solve dispatch and emits solve_complete
+        # Inspector (hidden) — handles solve dispatch and emits solve_complete / solve_error
         self._inspector.wire_solve_button(self)
         self._inspector.solve_complete.connect(self._on_solve_complete)
+        self._inspector.solve_error.connect(self._on_solve_error)
 
         # MetricsPane — "Solve Field" button
         self._metrics_pane.solve_requested.connect(self._on_solve_requested)
+
+        # Badge bar — clicking a badge flashes the corresponding pane
+        self._badge_bar.badge_clicked.connect(self._on_badge_clicked)
 
         # StarTableWidget signals
         self._star_table.select_target_clicked.connect(
@@ -736,15 +742,28 @@ class MainWindow(QMainWindow):
     # Plate solve
     # ------------------------------------------------------------------
 
+    def _on_badge_clicked(self, index: int) -> None:
+        """Flash the pane associated with the clicked badge index."""
+        pane_map = {
+            0: self._left_pane,      # LOADED  → Sequence pane
+            1: self._metrics_pane,   # SOLVED  → Metrics pane
+            2: self._star_pane,      # PHOTOMETRY → Stars pane
+        }
+        pane = pane_map.get(index)
+        if pane is not None and hasattr(pane, "flash_highlight"):
+            pane.flash_highlight()
+
     def _on_solve_requested(self) -> None:
         """Triggered by MetricsPane 'Solve Field' button."""
         self._metrics_pane.set_solving_state(True)
         self._badge_bar.set_stage_active(1)
         self._bottom.set_status("Plate solving…")
-        # Delegate to the inspector's internal solve logic
-        self._inspector._run_solve()  # type: ignore[attr-defined]
+        # Delegate to the inspector's internal solve slot
+        self._inspector._on_solve_clicked()  # type: ignore[attr-defined]
 
     def _on_solve_complete(self, wcs: object) -> None:
+        logger.info("Plate solve worker finished, result received")
+        logger.info("WCS result type: %s", type(wcs))
         self._metrics_pane.set_solving_state(False)
         self._badge_bar.set_stage_complete(1)
         self._badge_bar.set_stage_active(2)
@@ -756,8 +775,17 @@ class MainWindow(QMainWindow):
 
         self._dispatch_catalog_query(wcs)
 
+    def _on_solve_error(self, tb: str) -> None:
+        """Handle a plate-solve worker failure — always unblock the UI."""
+        last_line = tb.strip().splitlines()[-1] if tb.strip() else "Unknown error"
+        logger.error("Plate solve failed: %s", last_line)
+        self._metrics_pane.set_solving_state(False)
+        self._metrics_pane.set_solve_error(last_line)
+        self._bottom.set_status(f"Plate solve failed: {last_line}")
+
     def _update_metrics_wcs(self, wcs: object) -> None:
         """Extract RA/Dec/scale from WCS and push to MetricsPane."""
+        logger.info("update_wcs called with wcs=%s", wcs)
         try:
             from astropy.wcs.utils import proj_plane_pixel_scales
             import astropy.units as u

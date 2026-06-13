@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QRect, QSize, Qt, Signal
 from PySide6.QtGui import QColor, QFont, QFontMetrics, QPainter, QPen
 from PySide6.QtWidgets import QSizePolicy, QWidget
 
@@ -26,15 +26,23 @@ class PipelineBadgeBar(QWidget):
     active   : ACCENT dot (with subtle glow) + ACCENT text
     complete : SUCCESS dot + FG_3 text
 
+    Signals
+    -------
+    badge_clicked : Signal(int)
+        Emitted with the badge index (0-3) when a badge is clicked.
+
     Parameters
     ----------
     parent : QWidget | None
         Optional parent widget.
     """
 
+    badge_clicked: Signal = Signal(int)
+
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._states: list[int] = [_PENDING] * len(_STAGES)
+        self._badge_rects: list[QRect] = []   # populated each paintEvent for hit-testing
         self.setFixedHeight(28)
         self.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
@@ -63,6 +71,19 @@ class PipelineBadgeBar(QWidget):
             self.update()
 
     # ------------------------------------------------------------------
+    # Mouse hit-testing
+    # ------------------------------------------------------------------
+
+    def mousePressEvent(self, event: object) -> None:  # type: ignore[override]
+        from PySide6.QtCore import QPoint as _QPoint
+        pos: _QPoint = event.pos()  # type: ignore[attr-defined]
+        for i, rect in enumerate(self._badge_rects):
+            if rect.contains(pos):
+                self.badge_clicked.emit(i)
+                return
+        super().mousePressEvent(event)  # type: ignore[arg-type]
+
+    # ------------------------------------------------------------------
     # Paint
     # ------------------------------------------------------------------
 
@@ -78,13 +99,14 @@ class PipelineBadgeBar(QWidget):
         fm = QFontMetrics(badge_font)
 
         pad_x   = 10   # horizontal text padding inside badge
-        pad_y   = 5    # vertical padding
         dot_r   = 3    # dot radius
         dot_gap = 5    # gap between dot and text
         gap     = 6    # gap between badges
         h       = self.height()
 
         x = 0
+        new_rects: list[QRect] = []
+
         for i, stage in enumerate(_STAGES):
             state = self._states[i]
 
@@ -99,10 +121,13 @@ class PipelineBadgeBar(QWidget):
                 dot_color  = Colors.FG_4
                 text_color = Colors.FG_4
 
-            text_w    = fm.horizontalAdvance(stage)
-            badge_w   = pad_x + dot_r * 2 + dot_gap + text_w + pad_x
-            badge_h   = h - 2
-            radius    = badge_h // 2
+            text_w  = fm.horizontalAdvance(stage)
+            badge_w = pad_x + dot_r * 2 + dot_gap + text_w + pad_x
+            badge_h = h - 2
+            radius  = badge_h // 2
+
+            # Store rect for hit-testing (include the +1 y offset)
+            new_rects.append(QRect(x, 1, badge_w, badge_h))
 
             # Background pill
             painter.setPen(QPen(QColor(Colors.BORDER), 1))
@@ -134,15 +159,15 @@ class PipelineBadgeBar(QWidget):
 
             x += badge_w + gap
 
+        self._badge_rects = new_rects
         painter.end()
 
     def sizeHint(self) -> object:  # type: ignore[override]
-        from PySide6.QtCore import QSize
         badge_font = QFont("JetBrains Mono")
         badge_font.setPixelSize(9)
         fm = QFontMetrics(badge_font)
         total_w = 0
-        for i, stage in enumerate(_STAGES):
+        for stage in _STAGES:
             tw = fm.horizontalAdvance(stage)
             total_w += 10 + 6 + 5 + tw + 10 + 6
         return QSize(total_w, 28)

@@ -128,3 +128,17 @@ class MetricsPane(CockpitPane):
         """
         self._solve_btn.setEnabled(not is_solving)
         self._solve_btn.setText("Solving…" if is_solving else "Solve Field")
+
+    def set_solve_error(self, message: str) -> None:
+        """Display a solve error in the RA Center cell and re-enable the button.
+
+        Parameters
+        ----------
+        message : str
+            Short error description shown in the RA stat cell.
+        """
+        self._ra_stat.set_value("Error")
+        self._ra_stat.set_error(message[:40])
+        self._solve_btn.setEnabled(True)
+        self._solve_btn.setText("Solve Field")
+        self.set_subtitle("Solve failed")

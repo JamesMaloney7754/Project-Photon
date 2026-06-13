@@ -202,8 +202,10 @@ class FitsCanvas(QWidget):
         self._mpl_canvas.setSizePolicy(
             QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding
         )
-        # Connect click handler for star selection
-        self._mpl_canvas.mpl_connect("button_press_event", self._on_canvas_click)
+        # Connect matplotlib event handlers for selection and pan
+        self._mpl_canvas.mpl_connect("button_press_event",   self._on_canvas_click)
+        self._mpl_canvas.mpl_connect("motion_notify_event",  self._on_canvas_drag)
+        self._mpl_canvas.mpl_connect("button_release_event", self._on_canvas_release)
 
         mpl_wrapper = QWidget()
         mpl_wrapper.setStyleSheet(f"background-color: {bg};")
@@ -229,10 +231,38 @@ class FitsCanvas(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.addWidget(self._stack)
 
+        # ── FIT reset button (floating overlay, bottom-right) ─────────────
+        from PySide6.QtWidgets import QPushButton as _QPushButton
+        self._fit_btn = _QPushButton("FIT", self)
+        self._fit_btn.setFixedSize(36, 20)
+        self._fit_btn.setStyleSheet(
+            f"QPushButton {{"
+            f"  background-color: rgba(17,19,31,180);"
+            f"  color: {Colors.FG_4};"
+            f"  border: 1px solid {Colors.BORDER};"
+            f"  border-radius: 4px;"
+            f"  font-size: 8px;"
+            f"  font-family: 'JetBrains Mono', monospace;"
+            f"}}"
+            f"QPushButton:hover {{"
+            f"  color: {Colors.FG};"
+            f"  border-color: {Colors.ACCENT};"
+            f"}}"
+        )
+        self._fit_btn.clicked.connect(self.reset_view)
+        self._fit_btn.setVisible(False)   # shown when image loads
+
         self._image_obj: Any = None
         self._stretch: str = "asinh"
         self._current_image: Any = None  # last displayed data; None when empty
         self._hud_artists: list[Any] = []  # HUD text overlays
+
+        # ── Zoom / pan state ───────────────────────────────────────────────
+        self._zoom_level: float = 1.0
+        self._pan_offset: list[float] = [0.0, 0.0]   # [x_shift, y_shift] in data coords
+        self._is_panning: bool = False
+        self._pan_start: tuple[float, float] | None = None  # mpl data coords at press
+        self._zoom_text: Any = None   # matplotlib text artist for zoom HUD
 
         # Resize debounce — defer canvas redraw 150 ms after the last resize event
         self._resize_timer = QTimer(self)
@@ -292,7 +322,14 @@ class FitsCanvas(QWidget):
         # Update HUD overlay
         if header is not None:
             self.update_hud(header=header)
-        self._mpl_canvas.draw_idle()
+
+        # Reset view for new frame; show FIT button
+        self._fit_btn.setVisible(True)
+        self._position_fit_btn()
+        if was_empty:
+            self.reset_view()
+        else:
+            self._mpl_canvas.draw_idle()
 
         # Fade in on first display
         if was_empty:
@@ -313,6 +350,9 @@ class FitsCanvas(QWidget):
         self._target_xy = None
         self._comparison_xys.clear()
         self._hud_artists.clear()
+        self._zoom_text = None
+        self._zoom_level = 1.0
+        self._pan_offset = [0.0, 0.0]
         self._stack.setCurrentIndex(0)
 
     # ------------------------------------------------------------------
@@ -737,19 +777,170 @@ class FitsCanvas(QWidget):
         """
         self._interaction_mode = mode
         if mode in ("select_target", "select_comparison"):
-            self.setCursor(Qt.CursorShape.CrossCursor)
+            self._mpl_canvas.setCursor(Qt.CursorShape.CrossCursor)
         else:
-            self.unsetCursor()
+            self._mpl_canvas.setCursor(Qt.CursorShape.OpenHandCursor)
 
     def _on_canvas_click(self, event: Any) -> None:
-        """Handle matplotlib button_press_event and emit :attr:`star_clicked`."""
+        """Handle matplotlib button_press_event — star selection OR pan start."""
         if event.button != 1:
             return
         if event.xdata is None or event.ydata is None:
             return
-        if self._interaction_mode == "none":
+        if self._interaction_mode != "none":
+            # Star selection mode: forward to selection handler
+            self.star_clicked.emit(float(event.xdata), float(event.ydata))
+        else:
+            # Pan mode: record start position in data coordinates
+            self._is_panning = True
+            self._pan_start = (float(event.xdata), float(event.ydata))
+            self._mpl_canvas.setCursor(Qt.CursorShape.ClosedHandCursor)
+
+    def _on_canvas_drag(self, event: Any) -> None:
+        """Matplotlib motion_notify_event — update pan offset."""
+        if not self._is_panning:
             return
-        self.star_clicked.emit(float(event.xdata), float(event.ydata))
+        if event.xdata is None or event.ydata is None:
+            return
+        if self._pan_start is None:
+            return
+
+        dx = self._pan_start[0] - float(event.xdata)
+        dy = self._pan_start[1] - float(event.ydata)
+        self._pan_offset[0] += dx
+        self._pan_offset[1] += dy
+        # Don't update _pan_start — it moves with the view, so deltas compound correctly
+        self._apply_view_transform()
+
+    def _on_canvas_release(self, event: Any) -> None:
+        """Matplotlib button_release_event — end pan."""
+        if self._is_panning:
+            self._is_panning = False
+            self._pan_start = None
+            if self._interaction_mode == "none":
+                self._mpl_canvas.setCursor(Qt.CursorShape.OpenHandCursor)
+
+    # ------------------------------------------------------------------
+    # Zoom / pan
+    # ------------------------------------------------------------------
+
+    def wheelEvent(self, event: Any) -> None:  # type: ignore[override]
+        """Scroll-to-zoom: 15% per step, clamped to [0.8×, 8×], zoom toward cursor."""
+        if self._image_obj is None:
+            return
+
+        # Convert wheel pixel position to matplotlib data coordinates
+        pos = event.position() if hasattr(event, "position") else event.posF()
+        widget_x, widget_y = pos.x(), pos.y()
+
+        # Map Qt widget coords to mpl figure coords
+        fig_w = self._mpl_canvas.width()
+        fig_h = self._mpl_canvas.height()
+        if fig_w == 0 or fig_h == 0:
+            return
+
+        # Get data coords under the cursor before zoom
+        try:
+            inv = self._ax.transData.inverted()
+            mpl_pt = inv.transform((widget_x, fig_h - widget_y))
+            cursor_dx, cursor_dy = float(mpl_pt[0]), float(mpl_pt[1])
+        except Exception:
+            cursor_dx, cursor_dy = 0.0, 0.0
+
+        # Determine zoom direction
+        delta = event.angleDelta().y() if hasattr(event.angleDelta(), "y") else 0
+        factor = 1.15 if delta > 0 else (1.0 / 1.15)
+        new_zoom = max(0.8, min(8.0, self._zoom_level * factor))
+        if new_zoom == self._zoom_level:
+            return
+
+        # Adjust pan so the point under the cursor stays fixed
+        scale = new_zoom / self._zoom_level
+        self._pan_offset[0] = cursor_dx - (cursor_dx - self._pan_offset[0]) / scale
+        self._pan_offset[1] = cursor_dy - (cursor_dy - self._pan_offset[1]) / scale
+        self._zoom_level = new_zoom
+
+        self._apply_view_transform()
+        event.accept()
+
+    def mouseMoveEvent(self, event: Any) -> None:  # type: ignore[override]
+        """Pan via matplotlib motion_notify_event (connected in __init__)."""
+        super().mouseMoveEvent(event)
+
+    def mouseReleaseEvent(self, event: Any) -> None:  # type: ignore[override]
+        """End panning on button release."""
+        if self._is_panning:
+            self._is_panning = False
+            self._pan_start = None
+            if self._interaction_mode == "none":
+                self._mpl_canvas.setCursor(Qt.CursorShape.OpenHandCursor)
+        super().mouseReleaseEvent(event)
+
+    def _apply_view_transform(self) -> None:
+        """Apply current zoom_level and pan_offset to the matplotlib axes."""
+        if self._image_obj is None:
+            return
+        img_array = self._image_obj.get_array()
+        if img_array is None:
+            return
+        try:
+            h, w = img_array.shape[:2]
+        except Exception:
+            return
+
+        # Full-extent half-widths
+        hw = w / (2.0 * self._zoom_level)
+        hh = h / (2.0 * self._zoom_level)
+
+        cx = self._pan_offset[0]
+        cy = self._pan_offset[1]
+
+        self._ax.set_xlim(cx - hw, cx + hw)
+        self._ax.set_ylim(cy - hh, cy + hh)
+
+        self._update_zoom_indicator()
+        self._mpl_canvas.draw_idle()
+
+    def _update_zoom_indicator(self) -> None:
+        """Draw/update the bottom-left zoom label via axes.text (transAxes)."""
+        if self._zoom_text is not None:
+            try:
+                self._zoom_text.remove()
+            except Exception:
+                pass
+            self._zoom_text = None
+
+        if self._image_obj is None:
+            return
+
+        label = (
+            f"zoom · {self._zoom_level:.2f}×  ·  drag to pan  ·  scroll to zoom"
+        )
+        self._zoom_text = self._ax.text(
+            0.01, 0.02, label,
+            transform=self._ax.transAxes,
+            fontsize=7,
+            color=Colors.FG_4,
+            fontfamily="monospace",
+            verticalalignment="bottom",
+            alpha=0.8,
+        )
+
+    def reset_view(self) -> None:
+        """Reset zoom to 1× and pan to centre, then redraw."""
+        self._zoom_level = 1.0
+        self._pan_offset = [0.0, 0.0]
+
+        if self._image_obj is not None:
+            img_array = self._image_obj.get_array()
+            if img_array is not None:
+                try:
+                    h, w = img_array.shape[:2]
+                    self._pan_offset = [w / 2.0, h / 2.0]
+                except Exception:
+                    pass
+
+        self._apply_view_transform()
 
     # ------------------------------------------------------------------
     # Resize debounce
@@ -758,6 +949,15 @@ class FitsCanvas(QWidget):
     def resizeEvent(self, event: Any) -> None:  # type: ignore[override]
         super().resizeEvent(event)
         self._resize_timer.start()  # restarts on each resize; fires once idle
+        self._position_fit_btn()
+
+    def _position_fit_btn(self) -> None:
+        """Place the FIT button 8px from the bottom-right corner."""
+        margin = 8
+        bw = self._fit_btn.width()
+        bh = self._fit_btn.height()
+        self._fit_btn.move(self.width() - bw - margin, self.height() - bh - margin)
+        self._fit_btn.raise_()
 
     def _do_resize(self) -> None:
         if self._current_image is not None:
