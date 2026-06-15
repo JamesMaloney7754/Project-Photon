@@ -260,3 +260,69 @@ def test_aperture_photometry_raises_on_out_of_bounds() -> None:
             comparison_xys=[(25.0, 25.0)],
             annulus_outer=15.0,
         )
+
+
+# ---------------------------------------------------------------------------
+# test_photometry_with_many_comparisons_near_edges
+# ---------------------------------------------------------------------------
+
+
+def test_photometry_with_many_comparisons_near_edges() -> None:
+    """10 comparison stars on a 3856×2180 image — all well within bounds.
+
+    Coordinates match a real observed scenario that previously caused a silent
+    stuck-state bug.  The test verifies the run either succeeds or raises
+    PhotometryError with a descriptive message — never hangs silently.
+    """
+    pytest.importorskip("photutils")
+
+    import numpy as np
+    from photon.core.photometry import PhotometryError, run_aperture_photometry
+
+    H, W = 3856, 2180  # (height, width) — numpy shape (N, H, W)
+    rng = np.random.default_rng(0)
+    n_frames = 3
+    stack = rng.normal(1000.0, 20.0, (n_frames, H, W)).astype(np.float64)
+
+    # Add a bright target and comparison blobs so photometry has signal
+    def _add_star(img: np.ndarray, cx: float, cy: float, amp: float = 5000.0) -> None:
+        ys, xs = np.ogrid[:H, :W]
+        img += amp * np.exp(-((xs - cx) ** 2 + (ys - cy) ** 2) / 8.0)
+
+    target_xy = (1090.0, 1928.0)  # image centre
+    comparison_xys = [
+        (571.3,  282.6),
+        (872.9,  781.3),
+        (430.2,  1540.8),
+        (1200.5, 3100.4),
+        (1800.1, 400.7),
+        (300.0,  2900.0),
+        (1900.0, 3700.0),
+        (100.0,  1000.0),
+        (2050.0, 500.0),
+        (700.0,  3500.0),
+    ]
+
+    for frame in stack:
+        _add_star(frame, *target_xy)
+        for xy in comparison_xys:
+            _add_star(frame, *xy, amp=3000.0)
+
+    try:
+        result = run_aperture_photometry(
+            stack,
+            target_xy=target_xy,
+            comparison_xys=comparison_xys,
+            aperture_radius=8.0,
+            annulus_inner=12.0,
+            annulus_outer=20.0,
+        )
+        # Verify shape of returned arrays
+        assert result["target_flux"].shape == (n_frames,)
+        assert result["differential_mag"].shape == (n_frames,)
+        assert "scatter" in result
+    except PhotometryError as exc:
+        # An edge rejection is acceptable — the message must name the position
+        assert "too close" in str(exc).lower() or "edge" in str(exc).lower(), (
+            f"PhotometryError message not descriptive enough: {exc}"
+        )

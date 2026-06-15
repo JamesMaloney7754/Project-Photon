@@ -95,14 +95,28 @@ def run_aperture_photometry(
     n_comp = len(comparison_xys)
     all_positions = [target_xy] + list(comparison_xys)
 
+    logger.info(
+        "Starting photometry: target=%s, %d comparisons, aperture=%.1f",
+        target_xy, n_comp, aperture_radius,
+    )
+    logger.info("Image shape (n_frames, height, width): (%d, %d, %d)", n_frames, h, w)
+
+    # Extra 5 px safety buffer beyond the annulus to avoid photutils edge artefacts
+    margin = annulus_outer + 5.0
+
     # Validate that all apertures fit within the image
-    for pos_x, pos_y in all_positions:
-        if not (annulus_outer <= pos_x < w - annulus_outer and
-                annulus_outer <= pos_y < h - annulus_outer):
+    # Axis convention: pos_x = column (0..w-1), pos_y = row (0..h-1)
+    labels = ["target"] + [f"comp_{i}" for i in range(n_comp)]
+    for label, (pos_x, pos_y) in zip(labels, all_positions):
+        logger.info(
+            "Checking %s at (x=%.1f, y=%.1f), margin=%.1f, image=(w=%d, h=%d)",
+            label, pos_x, pos_y, margin, w, h,
+        )
+        if not (margin <= pos_x < w - margin and margin <= pos_y < h - margin):
             raise PhotometryError(
                 f"Position ({pos_x:.1f}, {pos_y:.1f}) is too close to the "
                 f"image edge for the requested annulus outer radius "
-                f"({annulus_outer} px)."
+                f"({annulus_outer} px) plus safety margin (5 px)."
             )
 
     target_fluxes = np.zeros(n_frames)

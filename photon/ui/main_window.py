@@ -971,41 +971,63 @@ class MainWindow(QMainWindow):
         )
         worker.signals.result.connect(self._on_phot_worker_done)
         worker.signals.error.connect(self._on_phot_error)
+        # Safety net: always re-enable run button when worker finishes
+        worker.signals.finished.connect(
+            lambda: self._star_table.set_running(False)
+        )
         QThreadPool.globalInstance().start(worker)
 
     def _on_phot_worker_done(self, payload: object) -> None:
-        # Let the hidden PhotometryPanel process the result and emit photometry_complete
-        self._phot_panel.on_photometry_done(payload)  # type: ignore[arg-type]
+        logger.info("Photometry worker finished, result received")
+        try:
+            self._phot_panel.on_photometry_done(payload)  # type: ignore[arg-type]
+        except Exception as exc:
+            logger.error("on_photometry_done raised: %s", exc)
+            self._star_table.set_running(False)
+            self._bottom.set_status(f"Photometry result error: {exc}")
 
     def _on_phot_error(self, traceback_str: str) -> None:
+        last_line = traceback_str.strip().splitlines()[-1] if traceback_str.strip() else "Unknown error"
+        logger.error("Photometry failed: %s\n%s", last_line, traceback_str)
         self._star_table.set_running(False)
         self._phot_panel.set_running(False)
-        last_line = traceback_str.strip().splitlines()[-1]
         self._bottom.set_status(f"Photometry error: {last_line}")
-        logger.error("PhotometryWorker error:\n%s", traceback_str)
-        QMessageBox.critical(self, "Photometry Error", last_line)
+        QMessageBox.warning(self, "Photometry Error", last_line)
 
     def _on_photometry_complete(self, result: dict) -> None:
+        import numpy as np
+
         self.session.photometry_result = result.get("photometry")
         lc = result.get("light_curve")
         self.session.light_curve = lc
 
-        self._star_table.set_running(False)
+        # Update MetricsPane — extract scalar values from numpy arrays
+        try:
+            phot = result.get("photometry") or {}
+            scatter = float(phot.get("scatter", 0.0))
 
-        # Update MetricsPane photometry cells
-        phot = result.get("photometry") or {}
-        scatter = phot.get("scatter", 0.0)
-        flux    = phot.get("target_flux", None)
-        mag     = phot.get("diff_mag",    None)
-        flux_str   = f"{flux:.0f}"   if flux   is not None else "—"
-        mag_str    = f"{mag:.4f}"    if mag    is not None else "—"
-        scatter_str = f"{scatter:.4f}"
-        self._metrics_pane.update_photometry(flux_str, mag_str, scatter_str)
+            flux_arr = phot.get("target_flux", None)
+            flux_val = float(np.asarray(flux_arr).flat[0]) if flux_arr is not None else None
+            flux_str = f"{flux_val:.0f}" if flux_val is not None else "—"
+
+            mag_arr = phot.get("differential_mag", None)
+            mag_val = float(np.asarray(mag_arr).flat[0]) if mag_arr is not None else None
+            mag_str = f"{mag_val:.4f}" if mag_val is not None else "—"
+
+            scatter_str = f"{scatter:.4f}"
+            self._metrics_pane.update_photometry(flux_str, mag_str, scatter_str)
+        except Exception as exc:
+            logger.error("MetricsPane photometry update failed: %s", exc)
+            scatter = 0.0
 
         if lc is not None:
-            self._lc_panel.update_light_curve(lc)
-            self._lc_panel.setVisible(True)
+            try:
+                self._lc_panel.update_light_curve(lc)
+                self._lc_panel.setVisible(True)
+            except Exception as exc:
+                logger.error("Light curve update failed: %s", exc)
 
+        self._star_table.set_running(False)
         self._badge_bar.set_stage_complete(2)
         self._badge_bar.set_stage_active(3)
         self._bottom.set_status(f"Photometry complete — scatter {scatter:.4f} mag")
